@@ -1,0 +1,351 @@
+# Protocol — Dialectic-CLI 런타임 사양
+
+> 본 문서는 런타임 메커니즘의 단일 진실 (single source of truth). 코드와 본 문서가 어긋나면 둘 중 하나가 틀린 것 — `docs/dev-docs/Documentation-Checklist.md`에 따라 동기화한다.
+
+권장 동선 4단계 — 메시지 흐름·턴 라이프사이클·실패 모드를 한 문서에서 모두 확인.
+
+---
+
+## 1.0 포지션 vs 역할 vs 벤더 (3축 분리)
+
+본 문서에 등장하는 세 가지 명칭의 차이:
+
+| 구분 | 의미 | 값 | 결정 시점 |
+|---|---|---|---|
+| **포지션 (slot)** | 한 턴 안에서 누가 먼저/나중에 발화하는가 | `driver` (먼저) / `reviewer` (나중) | 프로토콜 고정 |
+| **역할 (role)** | 그 포지션에 들어가는 에이전트의 책임 | `implementer` / `spec-reviewer` / `planner` / `plan-reviewer` | **모드별 자동 매핑** (§3) |
+| **벤더 (CLI)** | 그 포지션을 실제 실행하는 CLI | `codex` / `claude` / `mock` | `--driver` / `--reviewer` 플래그 |
+
+**메시지 스키마의 `from`은 역할 기준** (의미 명확). 포지션은 로그 파일명·orchestration 순서. 벤더는 CLI 호출 명령. 셋이 직교(orthogonal)하므로 한 task에 대해 (4 모드) × (2 포지션 × 2 벤더) = 최대 16 변종 비교 가능.
+
+---
+
+## 1.1 통신 모델
+
+```mermaid
+flowchart TB
+    subgraph Orch["Orchestrator (Python, 단일 프로세스)"]
+        direction TB
+        Bus["Bus<br/>(JSONL writer)"]
+        Loop["Turn Loop<br/>build_prompt(role.md +<br/>transcript + directive)"]
+        Driver["codex exec --json<br/>(driver slot)"]
+        Reviewer["claude -p --json<br/>(reviewer slot)"]
+        DSess[("sessions/<br/>N-driver.jsonl")]
+        RSess[("sessions/<br/>N-reviewer.jsonl")]
+        User["User Synthesis<br/>(stdin prompt or<br/>--decisions / --directives 자동)"]
+
+        Bus -. append .-> MJ[("logs/messages.jsonl")]
+        Bus --> Loop
+        Loop -- "subprocess<br/>cwd=resolved" --> Driver
+        Loop -- "subprocess<br/>cwd=resolved" --> Reviewer
+        Driver -- raw stream --> DSess
+        Reviewer -- raw stream --> RSess
+        Loop --> User
+        User -. append decision .-> Bus
+    end
+```
+
+직접 IPC 없음. bus가 통신 메커니즘 (자세한 정당화는 `docs/dev-docs/architecture.md` §5).
+
+---
+
+## 2. 메시지 스키마
+
+`logs/messages.jsonl` — 한 줄 = 한 메시지. 파일은 append-only.
+
+```jsonc
+{
+  "ts": "2026-05-06T14:32:11.482Z",     // ISO-8601 UTC
+  "msg_id": "t1-implementer",            // 메시지 고유 ID (parent 추적)
+  "parent_id": "t0-task",                // 어떤 메시지에 응답한 것인가 (DAG)
+  "turn_id": 1,                          // 1부터 시작
+  "seq_in_turn": 1,                      // 같은 턴 내 순서 (driver=1, reviewer=2, user=3)
+  "from": "implementer",                 // role 기준 — implementer | spec-reviewer | planner | plan-reviewer | user | system
+  "to":   "broadcast",                   // broadcast | implementer | spec-reviewer | planner | plan-reviewer
+  "slot": "driver",                      // driver | reviewer (system/user는 null)
+  "mode": "run",                         // run | plan | implement | compare
+  "kind": "proposal",                    // task | proposal | critique | decision | error | meta
+  "content": "...",                      // 본문 (마크다운/코드 자유)
+  "directive": null,                     // 사용자가 다음 턴에 주입한 지시문 (kind=decision일 때)
+  "meta": {
+    "vendor": "openai",                  // openai | anthropic | mock
+    "agent_cli": "codex",                // codex | claude | mock
+    "model": "gpt-5-codex",              // 가능하면 stream에서 파싱 (없으면 null)
+    "session_id": null,                  // claude session_id (claude 호출 시)
+    "thread_id": "019dfd43-...",         // codex thread_id (codex 호출 시)
+    "input_tokens": 13281,
+    "output_tokens": 5,
+    "cached_input_tokens": 11648,
+    "cost_usd": 0.0,                     // claude는 직접, codex는 추정 또는 null
+    "latency_ms": 2371,
+    "is_mock": false,                    // mock 재생 시 true
+    "workdir": "/tmp/dialectic-abc123"  // resolved cwd (재현성)
+  }
+}
+```
+
+### `kind` 값별 의미
+
+| kind | 발생 시점 | from |
+|---|---|---|
+| `task` | 첫 메시지 (turn_id=0) | `system` (또는 `user`) |
+| `proposal` | driver 포지션 응답 | role 따라 (`implementer` 또는 `planner`) |
+| `critique` | reviewer 포지션 응답 | role 따라 (`spec-reviewer` 또는 `plan-reviewer`) |
+| `decision` | 매 턴 사용자 결정 | `user` |
+| `error` | 호출 실패·timeout·파싱 실패 | `system` |
+| `meta` | budget 초과·중단 등 | `system` |
+
+### 스키마 구조
+
+```mermaid
+classDiagram
+    class Message {
+        +string ts
+        +string msg_id
+        +string parent_id
+        +int turn_id
+        +int seq_in_turn
+        +Role from
+        +Recipient to
+        +Slot? slot
+        +Mode mode
+        +Kind kind
+        +string content
+        +string? directive
+        +Meta meta
+    }
+    class Meta {
+        +Vendor vendor
+        +AgentCli agent_cli
+        +string? model
+        +string? session_id
+        +string? thread_id
+        +int input_tokens
+        +int output_tokens
+        +int cached_input_tokens
+        +float? cost_usd
+        +int latency_ms
+        +bool is_mock
+        +string workdir
+    }
+    class Role {
+        <<enum>>
+        implementer
+        spec-reviewer
+        planner
+        plan-reviewer
+        user
+        system
+    }
+    class Slot {
+        <<enum>>
+        driver
+        reviewer
+    }
+    class Kind {
+        <<enum>>
+        task
+        proposal
+        critique
+        decision
+        error
+        meta
+    }
+    class Mode {
+        <<enum>>
+        run
+        plan
+        implement
+        compare
+    }
+
+    Message "1" *-- "1" Meta
+    Message --> "0..1" Message : parent_id (DAG)
+    Message ..> Role : from
+    Message ..> Slot : slot
+    Message ..> Kind : kind
+    Message ..> Mode : mode
+```
+
+### 부가 필드의 타당성
+
+- `msg_id` + `parent_id` → 후속 분석 시 jq 없이도 DAG로 흐름 재구성
+- `meta.cost_usd` + `latency_ms` → "비용·속도 vs 품질" 분석 (Validation 1차 데이터)
+- `kind=error` → 호출 실패도 메시지로 기록 → 디버깅·신뢰성
+- `is_mock` → 재생 vs 실 호출 구분, 정직성 확보
+- `from` (역할) + `slot` (순서) + `mode` (맥락) → 한 줄로 "어떤 모드의 어느 포지션에 어떤 역할이 들어갔는가" 즉시 파악
+- `meta.workdir` → 재현성. 같은 task를 다른 cwd로 재실행 시 결과 차이 추적
+
+---
+
+## 3. 모드 ↔ role 매핑
+
+```python
+# src/orchestrator.py
+MODE_ROLES = {
+    "run":       {"driver": "implementer",  "reviewer": "spec-reviewer"},
+    "plan":      {"driver": "planner",      "reviewer": "plan-reviewer"},
+    "implement": {"driver": "implementer",  "reviewer": "spec-reviewer"},
+    # compare는 위 3개 중 하나를 선택해서 병렬 실행
+}
+```
+
+mode가 정해지면 role은 자동. 사용자가 신경 안 써도 됨. mode 한 단어만 보면 어떤 ROLE 쌍인지 자명.
+
+---
+
+## 4. 한 턴의 라이프사이클
+
+```mermaid
+flowchart TD
+    Start(["Turn N start<br/>mode = run | plan | implement"])
+    R0["**0.** Resolve roles by mode (§3)<br/>driver_role / reviewer_role<br/>role_md_path = docs/runtime-docs/roles/&lt;role&gt;.md"]
+    R1["**1.** build_prompt(slot=driver)<br/>role_md + task + history + directive(N-1)"]
+    R2["**2.** subprocess: codex exec --json<br/>cwd = resolved_workdir (§1.3)<br/>append messages.jsonl<br/>kind=proposal, slot=driver"]
+    R3["**3.** build_prompt(slot=reviewer)"]
+    R4["**4.** subprocess: claude -p<br/>--append-system-prompt &lt;reviewer role.md&gt;<br/>append messages.jsonl<br/>kind=critique, slot=reviewer"]
+    R5["**5.** UI: 사용자 6지선다 + 자유 텍스트<br/>append kind=decision, from=user"]
+    R6{"**6.** decision == end?"}
+    Exit([exit])
+
+    Start --> R0 --> R1 --> R2 --> R3 --> R4 --> R5 --> R6
+    R6 -- yes --> Exit
+    R6 -- "no — N+=1" --> R1
+```
+
+---
+
+## 5. 4섹션 프롬프트 빌드 규약
+
+각 에이전트에게 주는 prompt는 **고정된 4섹션 마크다운**. orchestrator의 `build_prompt()` 함수가 생성한다.
+
+```markdown
+# 1. ROLE
+{docs/runtime-docs/roles/<role>.md 전체 — 모드별 implementer/spec-reviewer/planner/plan-reviewer 중 하나}
+
+# 2. TASK
+{사용자 초기 task 텍스트.
+ implement 모드는 task 대신 spec.md 본문 주입}
+
+# 3. HISTORY
+{messages.jsonl 에서 turn_id < N 인 메시지를 다음 형식으로 직렬화.
+ 라벨은 역할 기준}
+## Turn 1
+- IMPLEMENTER (proposal): {content 본문}
+- SPEC-REVIEWER (critique): {content 본문}
+- USER (decision: iterate, directive: "..."): {결정 + directive}
+
+## Turn 2
+...
+
+# 4. YOUR TURN
+당신의 역할({role})로 다음을 수행:
+{role-specific instructions}
+
+(directive: {turn N-1의 user directive 그대로})
+```
+
+### 왜 이 형식?
+
+- **Section 분리**: 에이전트가 자기 ROLE을 잊지 않도록 매 턴 `# 1. ROLE` 재주입. 프롬프트 cache가 비용을 흡수하므로 반복 비용 미미.
+- **HISTORY 풀 주입**: 압축하지 않고 모든 이전 턴을 그대로 주입. Claude 실측: cache_creation 5549 → cache_read 4971로 캐시가 효율적으로 처리.
+- **`directive` 마지막 강조**: 사용자 의도가 가장 손실되기 쉬운 부분이라 의도적으로 마지막에 한 번 더.
+- **ROLE 섹션의 셀프체크**: 응답 전 자가 일관성 강제. messages.jsonl에서 ROLE 준수 자명 확인 가능 (`docs/runtime-docs/roles/*.md` §응답 전 셀프체크).
+
+---
+
+## 6. 세션 연속성 — stateless
+
+`--session-id` / `--resume`는 **사용 안 함**. orchestrator가 매 턴 풀 트랜스크립트를 재주입한다 (ADR-1).
+
+이유:
+1. JSONL이 source of truth — 사후에 흐름 재구성 가능
+2. Codex(`thread_id` 사후 캡처) ↔ Claude(`session_id` 사전 지정) 비대칭을 추상화 누수 없이 흡수
+3. 디버깅·중간 편집 시 JSONL만 편집하면 됨
+
+세션 ID는 **로그 파일명 일관성** 용도만 (`logs/sessions/N-<slot>-<uuid>.jsonl`).
+
+---
+
+## 7. cwd 격리 (ADR-6)
+
+orchestrator는 모든 subprocess 호출에 `cwd=resolved_workdir` 강제.
+
+- `--workdir <path>` CLI 옵션 명시 시: 그 경로 사용 (driver/reviewer가 작업 대상 코드베이스를 읽으며 작업 가능)
+- 미지정 시: `tempfile.mkdtemp(prefix="dialectic-")`로 임시 디렉토리 자동 생성, 런 종료 시 정리
+
+**Dialectic-CLI 자체 cwd**(개발용 .md가 있는 곳)는 절대 런타임 cwd가 되지 않는다 — 개발용 ROLE이 런타임 prompt에 누수되는 위험 차단.
+
+`resolved_workdir`은 매 턴 메시지 `meta.workdir`에 기록 (재현성).
+
+단위 테스트(`tests/test_cwd_isolation.py`):
+- Dialectic-CLI cwd에 더미 `CLAUDE.md`(예: "절대 코드를 제안하지 마라")를 둔 상태에서 어댑터 호출
+- raw stream JSONL에 더미 내용이 prompt에 포함되지 않음을 검증
+
+---
+
+## 8. 어댑터 인터페이스
+
+```python
+# src/agents/base.py
+@dataclass
+class AgentResponse:
+    text: str
+    raw_path: Path        # logs/sessions/N-<slot>-<id>.jsonl
+    meta: dict            # vendor, model, session_id|thread_id, *_tokens, cost_usd, latency_ms, is_mock, workdir
+
+class AgentRunner(Protocol):
+    name: str             # "codex" | "claude" | "mock"
+    vendor: str           # "openai" | "anthropic" | "mock"
+    def run(self, prompt: str, *, raw_log_path: Path, timeout_s: int, workdir: Path) -> AgentResponse: ...
+```
+
+세 어댑터:
+- `src/agents/codex.py`: `codex exec --sandbox read-only --skip-git-repo-check --ignore-rules --json -`
+- `src/agents/claude.py`: `claude -p --tools "" --output-format json --no-session-persistence --append-system-prompt`
+- `src/agents/mock.py`: 사전 녹음된 JSONL 파일 재생 (인증 불필요, `--record`로 녹음)
+
+orchestrator는 어떤 어댑터인지 모름 — 인터페이스 동치. mock은 `--mock <recording_dir>` 인자 시 단 한 줄 분기.
+
+---
+
+## 9. 실패 모드
+
+| 실패 | 처리 | 메시지 기록 |
+|---|---|---|
+| Subprocess 비정상 종료 | 에러 캡처, 재시도 1회 | `kind=error, content=<stderr 발췌>` |
+| Timeout (>300s) | 프로세스 kill, retry 1회 후 fail | `kind=error, content="timeout"` |
+| 출력 JSON 파싱 실패 | raw stdout 통째 보존 | `kind=error, content="parse_failure", meta.raw=...` |
+| 빈 응답 | 사용자 알림, retry 옵션 | `kind=error, content="empty_response"` |
+| 인증 실패 | 친절한 안내 화면 + 재인증 후 r 키로 재시도 | `kind=error, content="auth_failure"` |
+| MAX_BUDGET_USD 초과 | 즉시 중단 | `kind=meta, content="budget_exceeded"` |
+
+모든 에러도 messages.jsonl에 append되어 사후 분석·재현 가능.
+
+---
+
+## 10. 호출 옵션 보안·결정성
+
+- **Codex**: `--sandbox read-only --skip-git-repo-check --ignore-rules`
+  - read-only sandbox: 코드 실행 못 함, 파일 수정 못 함
+  - skip-git-repo-check: 임시 cwd에서도 동작
+  - ignore-rules: cwd의 `.rules` 파일 무시 (외부 영향 차단)
+- **Claude**: `--tools "" --no-session-persistence --max-budget-usd 1.0`
+  - tools "": 모든 툴 비활성 (텍스트 in/out만)
+  - no-session-persistence: 디스크 저장 비활성 (raw 로그를 우리가 따로 캡처하므로 중복 방지)
+  - max-budget-usd: 비용 안전장치
+- **공통**: timeout 300s, cwd=resolved_workdir, stdin으로 prompt 전달
+
+---
+
+## 11. 변경 시 동기화
+
+본 문서가 바뀌면 다음을 함께 갱신 (Documentation-Checklist 참조):
+
+| 본 문서 변경 부위 | 동기화 대상 |
+|---|---|
+| 메시지 스키마 (§2) | `src/schema.py`, `src/bus.py`, `tests/test_schema.py` |
+| 모드 추가 (§3) | `src/orchestrator.py` MODE_ROLES, `docs/runtime-docs/roles/<new>.md`, `docs/dev-docs/architecture.md` §4 |
+| 턴 라이프사이클 (§4) | `src/orchestrator.py` turn loop, `tests/test_turn_cycle.py` |
+| 프롬프트 형식 (§5) | `src/orchestrator.py` build_prompt(), `docs/runtime-docs/roles/*.md` 셀프체크 |
+| 실패 모드 (§9) | `src/agents/*.py` error handling, `docs/dev-docs/validation.md` |
