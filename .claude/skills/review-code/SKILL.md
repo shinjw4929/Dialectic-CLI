@@ -22,6 +22,41 @@ tier: 2
 - commit 직전 (분류 단계에서 결함 잡기)
 - 사용자가 명시 호출 (특정 PR 검토)
 
+## 실행 방식 (자기 편향성 방지)
+
+본 스킬을 호출하는 메인 에이전트가 **검사 대상 코드의 작성자(execute-plan 실행자) 본인**이면 서브에이전트 분기 필수. 다른 작업자가 작성한 코드를 검토하는 경우에는 메인 직접 실행 가능.
+
+| 조건 | 실행 방식 |
+|---|---|
+| 메인 = `execute-plan` 실행자 (자기 코드 검토) | **서브에이전트 분기 필수** — 자기 합리화·blind spot 차단 |
+| 메인 ≠ 코드 작성자 (PR 검토 등) | 메인 직접 실행 가능 (이미 fresh perspective) |
+
+본 도구의 thesis(cross-vendor dialectic)와 동일 원칙 — 한 컨텍스트가 driver·reviewer 동시 수행하면 antithesis 약화. dev-time도 동일.
+
+### 격리 명령어 (서브에이전트 prompt 필수 포함)
+
+서브에이전트가 메인의 구현 맥락에 끌려가지 않도록, 호출 시 다음 지시를 명시:
+
+> 당신은 이 코드의 작성자가 아닙니다. 구현 의도·trade-off·암묵 가정을 모르며, 코드의 실제 동작과 `docs/dev-docs/Checklists/review-code-checklist.md` 체크리스트만으로 판단하십시오. "작성자가 그렇게 한 이유가 있을 것"이라고 추측 금지 — 위반 패턴이 보이면 결함.
+
+### Agent tool 호출 템플릿
+
+```
+Agent(
+  description="review-code: <대상 요약>",
+  subagent_type="general-purpose",
+  prompt="""
+  [위 격리 명령어 전문]
+
+  대상: <파일 목록> (또는 `git diff HEAD~1`로 변경분 식별).
+  절차: 본 SKILL.md §"3 도메인 검사 항목" 순회 + §"P0/P1/P2 분류" 적용.
+  출력: §3 결과 보고 형식의 markdown + validation.md 환원 후보 섹션.
+  """,
+)
+```
+
+서브에이전트 출력만 메인이 수신 → 사용자에게 그대로 전달 + validation.md 환원 결정.
+
 ## 3 도메인 검사 항목
 
 `docs/dev-docs/Checklists/review-code-checklist.md`가 항목별 표를 보유. 본 스킬은 그 표를 순회하며 검사.

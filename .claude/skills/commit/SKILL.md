@@ -37,21 +37,23 @@ unstaged + staged 변경 모두 파악.
 | 같은 부위 (한 .md 정리) | `docs/dev-docs/architecture.md` ADR 표만 갱신 |
 | 같은 도메인 (인프라) | `pyproject.toml` + `setup.sh` |
 
-분류표를 사용자에게 markdown 표로 제시:
+분류표를 사용자에게 markdown 표로 제시. **메시지 제목 + 본문 + 파일 목록을 한 표에 모두 포함** (본문 누락 방지):
 
 ```markdown
 ## 변경 분류
 
-| # | 메시지 후보 | 포함 파일 |
-|---|---|---|
-| 1 | Add codex adapter with cwd isolation | src/agents/codex.py, tests/test_codex.py |
-| 2 | Document codex options in protocol | docs/runtime-docs/protocol.md, docs/dev-docs/code-conventions.md |
-| 3 | Update README install steps | README.md, setup.sh |
+| # | 제목 | 본문 | 포함 파일 |
+|---|---|---|---|
+| 1 | Add codex adapter with cwd isolation | subprocess.run에 cwd=resolved_workdir 강제.<br>--sandbox read-only로 코드 실행 차단.<br>개발용 CLAUDE.md 누수 단위 테스트 추가. | src/agents/codex.py, tests/test_codex.py |
+| 2 | Document codex options in protocol | 어댑터 추가에 따른 protocol.md 옵션 표 갱신.<br>code-conventions.md §5에 keyword-only 인자 명시. | docs/runtime-docs/protocol.md, docs/dev-docs/code-conventions.md |
+| 3 | Update README install steps | setup.sh 추가로 install 절차 단순화.<br>README 상단 status banner와 일관시킴. | README.md, setup.sh |
 ```
+
+본문은 §"Commit 메시지 규칙" 기준으로 작성 — 1줄 fix 외에는 필수. 분류표 제시 단계에서 본문이 비어 있으면 §3 사용자 확인 단계로 넘어가지 않는다.
 
 ### 3. 사용자 확인
 
-분류표 → 사용자에게 "이 분류로 진행할까요? 수정 의견?" 질문. 사용자가 분류·메시지 수정 가능. **자동 commit 금지** — 항상 확인.
+분류표 → 사용자에게 "이 분류로 진행할까요? 수정 의견?" 질문. 사용자가 분류·제목·본문 수정 가능. **자동 commit 금지** — 항상 확인.
 
 ### 4. 순차 commit
 
