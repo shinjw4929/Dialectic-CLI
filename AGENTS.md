@@ -15,6 +15,7 @@
 - 단편 패치보다 근본 원인 추적. 자료구조·책임 통합으로 결함 클래스 자체 제거.
 - 표·다이어그램 적극 활용 (사용자가 짧고 정밀한 응답 선호).
 - **다이어그램은 mermaid 우선, ASCII art 금지**. ASCII는 정렬 공백·박스 유니코드(`─│┌┐└┘`)가 토크나이저에서 잘 안 묶여 mermaid 선언형(`A --> B`)보다 2~4배 토큰을 먹는다. 적용 범위: `.md` 문서, 사용자 응답 모두. 예외: 노드 2~3개의 inline linear flow(`A → B → C`)만 허용.
+- **첫 등장 축약어는 풀어쓰기**. 문서 단위(같은 `.md` 파일)·대화 세션 단위로 첫 등장 시 `ADR (Architecture Decision Record)` 형식. 이후 등장은 축약형. 예외: 일반적으로 풀어쓰지 않는 IT 표준어(API, CLI, JSON, URL, HTTP 등).
 - 본 도구의 핵심 thesis와 일관: cross-vendor diversity, dialectic 구조, .md 하네스 4계층, 실패→규칙 환원.
 
 ---
