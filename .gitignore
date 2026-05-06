@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dialectic-CLI 런타임 산출물
+logs/
+workdir-tmp/
+tasks/*/recordings/
