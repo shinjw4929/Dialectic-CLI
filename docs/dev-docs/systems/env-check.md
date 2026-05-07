@@ -1,0 +1,88 @@
+# env-check — `dialectic doctor`
+
+`src/env_check.py` (~52 LOC) 진리문서. claude/codex 인증·환경 점검 — 비용 0 (사용자 home에 `.mcp.json` 부재 시).
+
+## 호출 표면
+
+```bash
+dialectic doctor   # 인자 없음
+```
+
+`src/cli.py`의 argparse subparser `doctor` → `_print_env_check()` → `check_env()`.
+
+## check_env() 호출 4종
+
+| 항목 | 명령 | timeout | 비용 |
+|---|---|---|---|
+| `claude.version` | `claude --version` | 5s | 0 |
+| `claude.auth` | `claude auth status` | 10s | 0 (인증 상태 JSON 출력) |
+| `claude.doctor` | `claude doctor` | **30s** | 0 (단 사용자 `~/.mcp.json` 부재 가정 — 존재 시 stdio MCP 서버 spawn 부수효과) |
+| `codex.version` | `codex --version` | 5s | 0 |
+| `codex.login` | `codex login status` | 10s | 0 (인증 상태) |
+
+각 호출은 `_run_capture(cmd, env, timeout, cwd=None)` → `subprocess.run(... cwd=cwd or Path.home(), env=env, check=False)`.
+
+## env 화이트리스트 (`_safe_env`)
+
+```python
+_SYS_VARS = ("PATH", "HOME", "USER", "LANG")
+_AUTH_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_HOME")
+# claude 어댑터(`agents/claude.py:_ENV_AUTH_PREFIXES`)와 동기화 — `CLAUDE_CODE_*` prefix 매칭.
+# CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK 등 모든 변수 통과 (P-VENDOR 차단).
+_AUTH_PREFIXES = ("CLAUDE_CODE_",)
+
+def _safe_env() -> dict:
+    return {k: os.environ[k] for k in (*_SYS_VARS, *_AUTH_VARS) if k in os.environ}
+```
+
+- `USER`/`LANG`은 본 plan 결정 (code-conventions.md §3 예시는 PATH/HOME/AUTH만 — §3 sync deferred)
+- `_build_env`(어댑터) 화이트리스트와 중복 — `src/_env.py` 단일 진실 분리는 Day 3+ 검토 (narrative 권고만)
+
+## cwd 정책 (P-CWD)
+
+`_run_capture`의 `cwd=cwd or Path.home()` default — code-conventions §3 "cwd 명시 필수" P0 규약 준수. `Path.home()` 선택 이유:
+
+- OAuth 캐시 위치 (`~/.claude/`, `~/.codex/`)에서 인증 정보 안정적 read
+- Dialectic-CLI repo 루트가 아니라 ADR-6 두 층 누수와 무관
+- 사용자 `~/.mcp.json` 부재 환경 가정 (있으면 `claude doctor`가 stdio MCP 서버 spawn — Day 3+ ephemeral cwd 옵션 검토)
+
+## 출력 형식
+
+```python
+return {
+    "claude": {
+        "version": {"ok": bool, "stdout": str[:200], "stderr": str[:200]},
+        "auth":    {...},
+        "doctor":  {...},
+    },
+    "codex": {
+        "version": {...},
+        "login":   {...},
+    },
+}
+```
+
+`_print_env_check()`가 ANSI 색상 표 형식으로 사용자에게 출력 (rich/textual 미사용 — 외부 의존성 0).
+
+## 인증 미설정 환경 동작
+
+- `auth/login status` 명령 non-zero exit 또는 "not logged in" 메시지 → `r["ok"] = False`
+- 사용자에게 친절한 안내 (붉은 색 ANSI + README §환경설정 링크)
+- mock fallback (outline/03 §3.1, §4.4 Q5·C): Day 2 mock 어댑터 미구현이라 활성 X. Day 3+ mock + `--mock <recording_dir>` + 자동 fallback 한 묶음
+
+## 변경 시 갱신 영향
+
+| 코드 변경 | 갱신 대상 |
+|---|---|
+| `check_env` 호출 항목 추가 | 본 §check_env() 표 + `cli.py _print_env_check` 출력 |
+| `_safe_env` 화이트리스트 변수 추가 | 본 §env 화이트리스트 + `agents.md` `_build_env` (중복 동기화) + 향후 `code-conventions.md §3` 갱신 검토 |
+| `_run_capture` 시그니처 (cwd 기본값 등) | 본 §cwd 정책 + `cwd-isolation.md` Layer 1 |
+| timeout 변경 (예: doctor 30s) | 본 §check_env() 표 |
+| 신규 CLI 진단 명령 (Day 3+ `dialectic logs` 등) | 본 §호출 표면 → 신규 SSOT 또는 본 파일 확장 |
+
+## 관련 문서
+
+- `architecture.md` ADR-5 (mock 모드 + 인증 부재 자동 fallback)
+- `code-conventions.md §3` (subprocess 규약 — env_check도 적용)
+- `cwd-isolation.md` Layer 1 (subprocess `cwd=` 명시)
+- `agents.md` (어댑터 `_build_env` 화이트리스트 동일 정책)

@@ -6,21 +6,62 @@
 
 ---
 
+## 0. docs/ 폴더 구조 (진리문서 SSOT 위치)
+
+```
+docs/
+├── dev-docs/                   # A 층 (개발용)
+│   ├── architecture.md         # 인덱스 — 왜 dialectic + ADR + 4계층
+│   ├── code-conventions.md     # Python 규칙 횡단
+│   ├── validation.md           # 결함 → 규칙 환원 (P-id 표 §4.4)
+│   ├── assignment-requirements.md
+│   ├── codex-compat.md
+│   ├── Documentation-Checklist.md  # (본 파일)
+│   ├── Plans/                  # plan-writing-guide.md
+│   ├── Checklists/             # review-{plan,code}-checklist.md
+│   └── systems/                # 모듈별 진리문서 SSOT (NEW)
+│       ├── INDEX.md            # 모듈 표 + 의존 그래프
+│       ├── orchestrator.md     # turn loop + [CONVERGED] + ADR-9 + cli
+│       ├── agents.md           # AgentRunner Protocol + 어댑터
+│       ├── jsonl-bus.md        # Bus + Message/Meta schema
+│       ├── cwd-isolation.md    # ADR-6 메커니즘 (횡단)
+│       └── env-check.md        # dialectic doctor
+└── runtime-docs/               # B 층 (런타임)
+    ├── protocol.md             # 메시지 스키마 + 라이프사이클 (횡단)
+    ├── roles/                  # 4 ROLE 본문
+    │   ├── implementer.md
+    │   ├── spec-reviewer.md
+    │   ├── planner.md
+    │   └── plan-reviewer.md
+    └── systems/                # 모드별 진리문서 SSOT (NEW)
+        ├── INDEX.md            # 4 모드 매트릭스
+        └── run-mode.md         # Day 2 산출물 SSOT
+```
+
+**3 layer**:
+1. **인덱스** (`architecture.md` / `protocol.md`): 횡단 결정·사양
+2. **systems/** (NEW): 모듈/모드 단위 SSOT — 변경 시 반드시 갱신
+3. **본 Documentation-Checklist**: 변경 → systems/ 매핑
+
+---
+
 ## 1. 변경 유형 → 갱신 대상 매핑
 
 ### 1.1 코드 변경 (src/)
 
 | 변경 부위 | 갱신 대상 |
 |---|---|
-| `src/agents/base.py` (AgentRunner Protocol·AgentResponse) | `docs/runtime-docs/protocol.md` §8, `docs/dev-docs/code-conventions.md` §5, 모든 어댑터 (codex/claude/mock) 시그니처 검증 |
-| `src/agents/codex.py` (Codex 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3 |
-| `src/agents/claude.py` (Claude 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3 |
-| `src/agents/mock.py` (재생 로직) | `docs/runtime-docs/protocol.md` §8 mock 어댑터, README 5초 데모 명령, `tasks/<task>/recordings/` 형식 |
-| `src/orchestrator.py` 턴 라이프사이클 | `docs/runtime-docs/protocol.md` §4 turn lifecycle |
-| `src/orchestrator.py` MODE_ROLES dict | `docs/runtime-docs/protocol.md` §3 모드↔role 매핑, `docs/dev-docs/architecture.md` §4 |
-| `src/bus.py` (JSONL writer·flush 정책) | `docs/runtime-docs/protocol.md` §2, `docs/dev-docs/code-conventions.md` §4 |
-| `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증) |
-| `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령 |
+| `src/agents/base.py` (AgentRunner Protocol·AgentResponse) | `docs/runtime-docs/protocol.md` §8, `docs/dev-docs/code-conventions.md` §5, **`docs/dev-docs/systems/agents.md`**, 모든 어댑터 (codex/claude/mock) 시그니처 검증 |
+| `src/agents/codex.py` (Codex 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3, **`docs/dev-docs/systems/agents.md`** |
+| `src/agents/claude.py` (Claude 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3, **`docs/dev-docs/systems/agents.md`** |
+| `src/agents/mock.py` (재생 로직) | `docs/runtime-docs/protocol.md` §8 mock 어댑터, README 5초 데모 명령, `tasks/<task>/recordings/` 형식, **`docs/dev-docs/systems/agents.md`** |
+| `src/orchestrator.py` 턴 라이프사이클 | `docs/runtime-docs/protocol.md` §4 turn lifecycle, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/<mode>.md` (영향 받는 모드)** |
+| `src/orchestrator.py` MODE_ROLES dict | `docs/runtime-docs/protocol.md` §3 모드↔role 매핑, `docs/dev-docs/architecture.md` §4, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/INDEX.md`** 4 모드 매트릭스 |
+| `src/bus.py` (JSONL writer·flush 정책) | `docs/runtime-docs/protocol.md` §2, `docs/dev-docs/code-conventions.md` §4, **`docs/dev-docs/systems/jsonl-bus.md`** |
+| `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증), **`docs/dev-docs/systems/jsonl-bus.md` §schema** |
+| `src/env_check.py` (`dialectic doctor` 점검 항목) | **`docs/dev-docs/systems/env-check.md`**, README §환경설정 |
+| `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령, **`docs/dev-docs/systems/orchestrator.md` §cli**, **`docs/runtime-docs/systems/<mode>.md` §1** |
+| subprocess `cwd=` 또는 ADR-6 차단 메커니즘 (横단) | **`docs/dev-docs/systems/cwd-isolation.md`**, `docs/dev-docs/architecture.md` ADR-6, `outline/01-harness-layers.md` §1.3 |
 | `src/ui.py` (사용자 개입 UI) | `outline/03-ux.md` §2.2/2.3 |
 | `src/dev_skill_cli.py` (dev-time 스킬 wrapper) | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `AGENTS.md`/`CLAUDE.md` Skills §5, `docs/dev-docs/codex-compat.md` Command Wrapper, `.codex/skills/<workflow>/SKILL.md` 존재 검증 |
 | `dialectic-skill` repo-root wrapper | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `pyproject.toml` console script와 동작 일치 검증 |

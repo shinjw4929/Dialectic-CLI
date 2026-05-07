@@ -1,0 +1,123 @@
+# cwd-isolation — ADR-6 메커니즘 (横단)
+
+A 층(개발용 .md) ↔ B 층(런타임 prompt) 누수 차단 — `outline/01-harness-layers.md §1.3` + `architecture.md` ADR-6.
+
+본 문서는 **모듈 진리**가 아닌 **횡단 정책 진리**. `src/orchestrator.py run_session` + `src/agents/{codex,claude}.py subprocess.run` + `src/env_check.py _run_capture`가 본 정책의 구현 위치.
+
+## 위협 모델
+
+```
++-------------------------------------------------------------+
+| 위험 시나리오                                                |
++-------------------------------------------------------------+
+| 1. 사용자가 Dialectic-CLI repo cwd에서 dialectic run 실행   |
+|    → cwd=repo_root → claude/codex가 cwd CLAUDE.md 자동      |
+|    로드 → A 층 개발용 prompt가 B 층 driver/reviewer에 누수  |
+|                                                              |
+| 2. --workdir <dialectic_repo_root>로 명시 입력              |
+|    → Path.resolve() 정규화만으로는 차단 X                    |
++-------------------------------------------------------------+
+```
+
+## 차단 메커니즘 (3 layer)
+
+### Layer 1: subprocess `cwd=workdir` 명시 (P-CWD)
+
+모든 subprocess.run 호출에 `cwd=` 명시 — code-conventions §3 P0 규약.
+
+| 위치 | cwd 값 |
+|---|---|
+| `src/agents/codex.py` `subprocess.run` | `cwd=workdir` (run 인자) |
+| `src/agents/claude.py` `subprocess.run` | `cwd=workdir` (run 인자) |
+| `src/env_check.py` `_run_capture` | `cwd=cwd or Path.home()` (default home — OAuth 캐시 위치 + Dialectic-CLI cwd 아님) |
+
+`shell=True` 절대 금지 (review-code §안전성 P0).
+
+### Layer 2: orchestrator `run_session` workdir 정규화 + repo-root 차단
+
+```python
+workdir = (Path(args.workdir).resolve() if args.workdir
+           else Path(tempfile.mkdtemp(prefix="dialectic-")).resolve())
+
+DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
+if workdir == DIALECTIC_REPO_ROOT:
+    raise SystemExit(
+        f"--workdir이 Dialectic-CLI repo 루트({workdir})와 일치합니다 (ADR-6). "
+        f"개발용 .md가 런타임 prompt에 누수됩니다. 별도 경로 또는 --workdir 미지정 사용."
+    )
+
+cleanup = False  # Day 2: --workdir 미지정 시에도 결과 보존 (사용자 확인 통로)
+# 종료 시 stderr에 workdir + messages.jsonl 경로 안내. Day 3+ `--cleanup-workdir` 토글 검토.
+```
+
+`Path.resolve()`로 symlink + 상대경로 해소 → `workdir`이 항상 절대 정규 경로. `meta.workdir = str(workdir)` 박힘 (재현성).
+
+### Layer 3: 어댑터 옵션으로 cwd 자동 로드 보강
+
+| 어댑터 | 옵션 | 효과 |
+|---|---|---|
+| codex | `--ephemeral` | 세션 디스크 저장 비활성 → cwd 격리 보강 (cwd CLAUDE.md 자동 로드는 차단 X이지만 disk artifact 0) |
+| codex | `--ignore-rules` | cwd `.rules` 무시 (외부 영향 차단) |
+| claude | `--bare` (미사용) | OAuth/keychain 거부 명세라 미채택. Day 4 ADR-9 후보 — `disable_bare` 토글로 API key 사용자 대상 2층 방어선 추가 검토 |
+| claude | (cwd CLAUDE.md auto-load) | OS 차원 cwd 격리만 의존 |
+
+## 검증 (2단)
+
+### 단위 테스트 (1차 안전망 — `tests/test_cwd_isolation.py`)
+
+```python
+def test_codex_runner_passes_workdir_not_repo_root(monkeypatch, tmp_path):
+    # subprocess.run mock하여 cmd_list + cwd 인자 단언
+    # called["cwd"] == tmp_path
+    # called["cwd"] != Path.cwd()
+    # called.get("shell", False) is False
+    # "--ephemeral" in called["cmd"]
+
+def test_claude_runner_passes_workdir(...):
+    # 동일 패턴 + "--bare" not in cmd, "--append-system-prompt" not in cmd
+
+def test_run_session_rejects_repo_root_workdir():
+    # workdir = repo_root → SystemExit(match="ADR-6")
+```
+
+### 통합 테스트 (보강 — `tests/test_cwd_isolation_integration.py`)
+
+`@pytest.mark.integration` 마커 (default skip — `pytest -q` 시 자동 제외).
+
+```python
+@pytest.mark.integration
+def test_cwd_isolation_adr6(tmp_path):
+    repo_sentinel = repo_root / "CLAUDE.md.test-marker"
+    repo_sentinel.write_text("REPO-SENTINEL-MUST-NOT-LEAK", encoding="utf-8")  # R-001
+    tmp_claude = tmp_path / "CLAUDE.md"
+    tmp_claude.write_text("TMP-MARKER: ...", encoding="utf-8")  # R-001
+    try:
+        resp = ClaudeRunner().run("...", workdir=tmp_path, ...)
+        text_blob = resp.text + raw.read_text(encoding="utf-8")  # R-001
+        assert "REPO-SENTINEL-MUST-NOT-LEAK" not in text_blob   # 강제 단언
+        # TMP-MARKER 등장은 soft 관찰 (claude auto-load 정책 의존)
+    finally:
+        repo_sentinel.unlink(missing_ok=True)
+```
+
+**시나리오 차별력 narrative**: repo 루트 sentinel은 cwd 밖이라 strict 단언이 catch 능력 약함 — 단위 테스트가 1차 안전망. Day 3+ mock 어댑터 도입 시 사전 녹음 JSONL에 marker 포함시켜 deterministic 검증 가능.
+
+`.gitignore`에 `CLAUDE.md.test-marker` 등재 — 시나리오 도중 잔존 시 워킹트리 깨끗 보장.
+
+## 변경 시 갱신 영향
+
+| 코드 변경 | 갱신 대상 |
+|---|---|
+| 새 어댑터 추가 (mock 등) | 본 §Layer 1 표 + 본 §Layer 3 옵션 표 + `tests/test_cwd_isolation.py` 신규 어댑터 단언 |
+| `run_session` workdir 검증 변경 | 본 §Layer 2 + `orchestrator.md` §run_session + `tests/test_cwd_isolation.py::test_run_session_rejects_repo_root_workdir` |
+| ADR-9 `disable_bare` 토글 도입 (Day 4) | 본 §Layer 3 claude 행 + `agents.md` ClaudeRunner cmd_list + `architecture.md` ADR-9 |
+| 통합 시나리오 강화 (Day 3+ mock 활용) | 본 §검증 + `phase-d-tests.md` (또는 후속 plan) |
+
+## 관련 문서
+
+- `architecture.md` ADR-6 (cwd 격리 결정)
+- `outline/01-harness-layers.md §1.3` (두 층 분리 narrative)
+- `protocol.md §7` (cwd 격리 mermaid)
+- `agents.md` (어댑터 cmd_list + cwd= 명시)
+- `orchestrator.md` (run_session repo-root 차단)
+- `validation.md` P-CWD / P-LEAK
