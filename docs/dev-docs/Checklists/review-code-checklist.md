@@ -87,6 +87,7 @@
 - 단순 수정 권고를 넘어 `docs/dev-docs/validation.md`에 규칙으로 환원 권고
 - 환원된 규칙은 future plan의 review-plan-checklist 또는 review-code-checklist에 검사 항목으로 승격 가능
 - 자동 환원 X — 사용자 판단
+- 결함 발견 시 `validation.md` §4.4 P-id 표 조회 → 매치하면 P-id 인용 (예: `P-CWD`). 매치 X면 빈 칸 (신규 패턴 발견 신호 — §4.5 절차 따라 부여 검토).
 
 ## 본 표 자체의 변경
 

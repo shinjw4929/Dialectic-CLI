@@ -38,6 +38,7 @@
 | §1 목표 | 한 문장 (Phase 끝나면 무엇이 되는지) | P1 (모호) |
 | §2 입력 | 의존 산출물·참조 .md(줄 번호 권고)·사전 검증 사실 | P0 (의존 누락) / P2 (줄 번호 부재) |
 | §3 출력 | 생성·변경 파일 + 시그니처 수준 명세 | P0 (시그니처 부재) |
+| §3 코드 블록 라벨 | paste 의도인 정의(상수·dataclass)는 `# paste` 라벨 명시? | P1 (라벨 부재) |
 | §4 작업 단위 | 체크박스, execute-plan이 그대로 실행 가능한가 | P0 (모호) / P1 (단위 너무 큼) |
 | §5 검증 | 명령어 형태 (pytest, python -c, grep 등) | P1 |
 | §6 엣지케이스 | Phase 한정 1개 이상 | P1 (0개) / P2 (표면적) |
@@ -56,6 +57,7 @@
 | 모드↔role 매핑 | 모드 추가/변경 시 MODE_ROLES dict + role.md + architecture.md §4 모두 명시? | P0 |
 | Documentation-Checklist 매핑 | 새 변경 유형이면 §1에 매핑 추가 명시? | P1 |
 | 두 층 분리 (A/B) | plan이 dev-time 자산인지 runtime 자산인지 명확? 두 층 모두 영향이면 분리 plan 권고 | P1 |
+| P-id 인용 | plan이 §4.4 패턴(P-CWD/P-JSONL 등) 영역 변경 시 plan 본문에 P-id 명시? | P2 (인용 부재) |
 
 ## 3. 4계층 매핑 일관성
 

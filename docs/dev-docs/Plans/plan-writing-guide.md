@@ -167,6 +167,30 @@ flowchart LR
 - 예: subprocess timeout 동작이 OS별 차이 — Linux 기준 검증, macOS 별도 확인.
 ```
 
+### 3.1 코드 블록 라벨 (spec / paste)
+
+phase 파일 §3 출력의 코드 블록은 **execute-plan subagent의 자유 해석 폭**을 결정한다. 라벨로 의도 명시:
+
+| 라벨 | 의도 | execute-plan 동작 |
+|---|---|---|
+| `spec` (default) | 시그니처·docstring·예시 명세 | 의도 보존하며 자유 해석. 함수 본문·타입·docstring은 subagent가 결정. |
+| `paste` | 그대로 코드에 들어가는 정의 (상수, frozen dataclass, lambda, 정확한 dict 리터럴 등) | **변형 금지**. 들여쓰기·식별자·값 그대로 복사. |
+
+표기: 코드 펜스 직후 첫 줄에 `# <label>` 인라인 주석:
+
+```python
+# paste
+MODE_ROLES = { "run": {...}, "plan": {...} }
+```
+
+```python
+# spec
+def _msg(turn_id: int, ...) -> Message:
+    """parent_id 추적·workdir 기록·meta sentinel 채움."""
+```
+
+라벨 부재 = `spec`. dataclass·상수·MODE_ROLES 같은 정의는 `paste` 명시 권장. 라벨은 **코드 펜스 직후 첫 줄에만** 인식 — 코드 본문 안의 `# spec`/`# paste` 주석은 무관.
+
 ---
 
 ## 4. AS-IS / TO-BE 형식의 가치
@@ -190,6 +214,7 @@ flowchart LR
 | 완료 기준 모호 ("잘 되면 끝") | review-plan이 무엇을 검사할지 모름 | 측정 가능 체크박스 + 책임 Phase 명시 |
 | 엣지케이스 0 | 발견 안 된 위험이 곧 미래 결함 | 00-plan.md §5 횡단 + phase 파일 §6 한정 양쪽에 |
 | Phase 파일이 00-plan.md 인용 없이 자급자족 X | review-plan이 phase 단위 검토 불가 | phase 파일 §0 메타에 00-plan.md 경로 + §2 입력에 참조 .md 명시 |
+| paste 의도인데 라벨 없음 | execute-plan이 spec(자유 해석)으로 해석 → MODE_ROLES 같은 정의가 변형 위험 | 정의는 `# paste` 명시 |
 
 ---
 

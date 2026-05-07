@@ -88,16 +88,33 @@
 
 ### 4.4 본 도구 specific 환원 패턴
 
-본 도구 특수 영역에서 자주 발생할 수 있는 패턴 (선제 모니터링):
+본 도구 특수 영역에서 자주 발생할 수 있는 패턴 (선제 모니터링). 각 패턴에 short-id 부여 — review-code/review-plan 결함 보고 시 P-id 인용:
 
-- **cwd 격리 실수** (ADR-6 위반) — 어댑터마다 반복 가능성 ↑
-- **JSONL append-only 위반** — 멀티 어댑터·멀티 모드에서 동시 쓰기 시 위험
-- **mock vs 실 호출 비대칭** — meta.is_mock 누락, 출력 형식 차이
-- **모드↔role 매핑 일관성** — MODE_ROLES dict와 docs 사이
-- **두 층 누수** (A의 .md가 runtime prompt에 끼어듦) — cwd 격리가 막아주지만 구조 변경 시 재검증 필요
-- **벤더 비대칭** — Codex만, Claude만 갖는 옵션이 어댑터 인터페이스에 누수
+| P-id | 패턴 | 근거 ADR |
+|---|---|---|
+| **P-CWD** | cwd 격리 실수 — 어댑터마다 반복 가능성 ↑ | ADR-6 |
+| **P-JSONL** | JSONL append-only 위반 — 멀티 어댑터·멀티 모드 동시 쓰기 시 위험 | ADR-1 |
+| **P-MOCK** | mock vs 실 호출 비대칭 — `meta.is_mock` 누락, 출력 형식 차이 | ADR-5 |
+| **P-MODE** | 모드↔role 매핑 일관성 — `MODE_ROLES` dict와 docs 사이 | ADR-3, ADR-7 |
+| **P-LEAK** | 두 층 누수 — A 층 .md가 runtime prompt에 끼어듦 (cwd 격리가 막아주지만 구조 변경 시 재검증) | ADR-6 |
+| **P-VENDOR** | 벤더 비대칭 — Codex만 / Claude만 갖는 옵션이 어댑터 인터페이스에 누수 | ADR-2 |
 
-위 6가지는 본 도구 운영 초기에 1회씩 발생할 가능성이 있으므로, 발견 시 즉시 R-NNN으로 환원 권고 (1회 발견이라도).
+위 6가지는 본 도구 운영 초기에 1회씩 발생할 가능성이 있으므로, 발견 시 즉시 R-NNN으로 환원 권고 (1회 발견이라도). 환원된 R-NNN은 "사례" 항목에 P-id 인용 (예: `사례: P-CWD 1차 발생 — phase X에서 ...`).
+
+### 4.5 신규 패턴 P-id 부여
+
+§4.4 6개 외 새 패턴 발견 시:
+
+1. 패턴 의미 단위 명명 (예: 새로운 비대칭 = `P-NEWPATTERN`).
+2. 사용자가 P-id 결정 (자동 부여 X — 의미 단위 일관성 위해).
+3. validation.md §4.4 표에 신규 행 추가 + 근거 ADR 명시.
+4. review-code/review-plan SKILL.md 보고 형식이 본 P-id 인식.
+
+P-id 컨벤션:
+- 형식: `P-` + 영문 대문자 단어
+- 단어 1개: underscore 없음 (`P-CWD`, `P-JSONL`, `P-MOCK`, `P-MODE`, `P-LEAK`, `P-VENDOR`)
+- 단어 2개: UPPER_SNAKE underscore 구분 (`P-ASYNC_RACE`, `P-RETRY_LIMIT`)
+- 단어 3개+: 기각 — 의미 단위 짧게. 더 짧은 표현으로 재명명
 
 ---
 

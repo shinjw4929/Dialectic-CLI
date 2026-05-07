@@ -99,6 +99,7 @@ mermaid 의존성 그래프 작성 — 00-plan.md §3.1에 들어감.
 - §1 목표 (Phase 끝나면 무엇이 되는지)
 - §2 입력 (의존 산출물·참조 .md·사전 검증 사실)
 - §3 출력 (생성·변경 파일 + 핵심 시그니처)
+  - 코드 블록 의도가 "그대로 paste" 인 정의(상수·dataclass·MODE_ROLES 등)는 펜스 직후 `# paste` 명시. 시그니처+docstring 명세는 라벨 생략(default=spec) 또는 `# spec` 명시. 자세히는 `plan-writing-guide.md` §3.1.
 - §4 작업 단위 (체크박스, execute-plan이 그대로 실행 가능)
 - §5 검증 (Phase 완료 확인 명령어)
 - §6 엣지케이스 / 위험 (Phase 한정)

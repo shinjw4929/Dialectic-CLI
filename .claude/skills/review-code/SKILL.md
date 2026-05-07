@@ -120,22 +120,24 @@ Agent(
 
 ### 3. 결과 보고
 
+결함 보고는 표 형식 (도메인·위치·결함·심각도·P-id 칼럼). P-id는 `docs/dev-docs/validation.md` §4.4 표 조회 → 매치 시 인용, 매치 X면 `(해당 없음)` (신규 패턴 발견 신호 — §4.5 절차 검토).
+
 ```markdown
 ## review-code 결과
 
 대상: src/agents/codex.py + tests/test_codex.py
 
-### 안전성
-- [P0] line 42: subprocess.run에 shell=True 사용 — cmd_list로 분리 필요
-- [P1] line 67: timeout 미명시 — 300s 권고
-
-### 인터페이스
-- [P0] line 18: AgentRunner Protocol의 keyword-only 인자 위반 — `*` 추가 필요
-- [P2] line 92: AgentResponse를 dict로 반환 — frozen dataclass 사용 권고
-
-### 컨벤션
-- [P1] line 5: import requests — 외부 의존성 추가, ADR 필요
-- [P2] line 110: 함수 길이 130 lines — 분할 권고
+| 도메인 | 위치 | 결함 | 심각도 | P-id |
+|---|---|---|---|---|
+| 안전성 | src/agents/codex.py:42 | subprocess.run에 shell=True 사용 — cmd_list로 분리 필요 | P0 | (해당 없음) |
+| 안전성 | src/agents/codex.py:42 | subprocess.run에 cwd 누락 | P0 | P-CWD |
+| 안전성 | src/bus.py:18 | datetime.now() TZ-naive (JSONL bus 무결성 위협, Phase D ts 정책 위반) | P0 | P-JSONL |
+| 안전성 | src/agents/codex.py:67 | timeout 미명시 — 300s 권고 | P1 | (해당 없음) |
+| 인터페이스 | src/agents/codex.py:18 | AgentRunner Protocol의 keyword-only 인자 위반 — `*` 추가 필요 | P0 | (해당 없음) |
+| 인터페이스 | src/agents/mock.py:30 | meta.is_mock 누락 | P0 | P-MOCK |
+| 인터페이스 | src/agents/codex.py:92 | AgentResponse를 dict로 반환 — frozen dataclass 사용 권고 | P2 | (해당 없음) |
+| 컨벤션 | src/agents/codex.py:5 | import requests — 외부 의존성 추가, ADR 필요 | P1 | (해당 없음) |
+| 컨벤션 | src/agents/codex.py:110 | 함수 길이 130 lines — 분할 권고 | P2 | (해당 없음) |
 
 ### validation.md 환원 후보
 1. subprocess shell=True 패턴 (반복 발견 시 규칙화)

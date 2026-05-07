@@ -54,6 +54,14 @@ plan/<work-id>/
 
 phase 파일 §3(출력)·§4(작업 단위)·§5(검증)을 그대로 subagent 명세로 전달.
 
+### 2.1 코드 블록 라벨 처리
+
+phase 파일 §3 출력의 코드 블록 라벨에 따라 subagent 지시:
+- **`# paste`** (펜스 직후 첫 줄): 들여쓰기·식별자·값 **그대로 복사**. 변형 금지. subagent에게 "이 블록은 paste — 코드에 그대로 삽입" 지시.
+- **`# spec`** 또는 라벨 부재 (default): 시그니처·docstring·예시 명세 — 의도 보존하며 자유 해석. 함수 본문·타입·docstring은 subagent가 결정. subagent에게 "이 블록은 spec — 시그니처·docstring 보존하고 본문 작성" 지시.
+
+라벨이 펜스 직후 첫 줄에 없으면 spec으로 해석. 자세히는 `plan-writing-guide.md` §3.1.
+
 ### 3. Phase별 검증
 
 phase 파일 §5(검증) 명령어 그대로 실행:
