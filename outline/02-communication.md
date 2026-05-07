@@ -89,11 +89,25 @@ flowchart TD
     R2["**2.** subprocess: codex exec --json<br/>cwd = resolved_workdir (§1.3)<br/>append messages.jsonl<br/>kind=proposal, slot=driver"]
     R3["**3.** build_prompt(slot=reviewer)"]
     R4["**4.** subprocess: claude -p --json<br/>append messages.jsonl<br/>kind=critique, slot=reviewer"]
-    R5["**5.** UI: 사용자 6지선다 + 자유 텍스트<br/>append kind=decision, from=user"]
+    R4a{"**4a.** reviewer 응답에<br/>[CONVERGED] 마커?"}
+    R4b["**4b.** convergence_streak += 1"]
+    R4c["**4c.** convergence_streak = 0<br/>(P0/P1 발견 → reset)"]
+    R4d{"**4d.** streak >= K?<br/>(default K=2)"}
+    R5{"**5.** --interactive level<br/>+ P0/P1 존재?"}
+    R5a["**5a.** UI: 사용자 6지선다<br/>+ 자유 텍스트<br/>append kind=decision"]
+    R5b["**5b.** auto-iterate<br/>(critical 모드 + P0/P1=0)<br/>directive=null"]
     R6{"**6.** decision == end?"}
     Exit([exit])
 
-    Start --> R0 --> R1 --> R2 --> R3 --> R4 --> R5 --> R6
+    Start --> R0 --> R1 --> R2 --> R3 --> R4 --> R4a
+    R4a -- yes --> R4b --> R4d
+    R4a -- no --> R4c --> R5
+    R4d -- yes --> Exit
+    R4d -- no --> R5
+    R5 -- "P0/P1 있음 또는<br/>--interactive=full" --> R5a
+    R5 -- "P0/P1=0 +<br/>--interactive=critical" --> R5b
+    R5a --> R6
+    R5b --> R1
     R6 -- yes --> Exit
     R6 -- "no — N+=1" --> R1
 ```
@@ -211,3 +225,14 @@ class AgentRunner(Protocol):
 | 빈 응답 | 사용자 알림, retry 옵션 | `kind=error, content="empty_response"` |
 | 인증 실패 | 즉시 종료, README §환경설정 안내 | `kind=error` 후 SystemExit |
 | MAX_BUDGET 초과 | 즉시 중단 | `kind=meta, content="budget_exceeded"` |
+
+## 2.9 수렴 마커 — [CONVERGED]
+
+reviewer가 P0/P1=0 (또는 P2만)일 때 응답 끝에 `[CONVERGED]` 한 줄 마커 출력. orchestrator가 정규식 `^\[CONVERGED\]$`로 감지.
+
+- **카운터**: 마커 등장 시 `convergence_streak += 1`. 한 턴이라도 P0/P1 발견 시 0 reset.
+- **종료**: streak ≥ K (default K=2, `--convergence-streak`로 조정) → `kind=meta, content="auto_end_converged"` 메시지 append 후 종료.
+- **fix-induced regression 차단**: K=1이면 driver가 P0 fix → 새 P0 도입을 못 봄. K=2가 fix→verify 1 사이클 보장.
+- **메시지 스키마 영향**: `kind=critique` 메시지 `meta`에 `convergence_streak: <int>` 옵션 필드 추가 (디버깅·재현용). 필수 X — 없으면 0 가정.
+- **auto-iterate 시 JSONL 처리**: critical 모드에서 P0/P1=0이라 사용자 prompt 생략 시, **`kind=decision` 메시지는 append 안 함** (사용자 결정 부재 = 결정 메시지 부재). 카운터 흔적은 `kind=critique`의 `meta.convergence_streak`에만. 자동 종료 시점에만 `kind=meta, content="auto_end_converged", meta.streak=K` 메시지 1행 append. 디버깅·재현 가능.
+- **경계 케이스**: `--max-turns < --convergence-streak + 1` 시작 시 K=1로 자동 fallback + stderr 경고 ("K reduced to 1: max-turns too low"). ADR-9 참조.

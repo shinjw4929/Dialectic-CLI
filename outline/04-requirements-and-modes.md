@@ -7,7 +7,7 @@
 | # | 요구사항 | 만족 방식 | 증빙 |
 |---|---|---|---|
 | 1 | 두 개 이상의 AI 에이전트가 메시지 교환 | Codex(Driver) ↔ Claude(Reviewer) ↔ User. 3-party. | `messages.jsonl` |
-| 2 | 사용자 개입·관찰 가능 | 매 턴 6지선다 + directive 자유 텍스트(개입). 실시간 화면 + `dialectic logs --follow`(관찰) | `kind=decision` 메시지 |
+| 2 | 사용자 개입·관찰 가능 | 매 턴 6지선다 + directive(개입, `--interactive` 강도 dial). 실시간 화면 + `dialectic logs --follow`(관찰). default = critical 모드 — P0/P1 발견 시만 prompt, 사용자가 항상 `e`/Ctrl-C로 끼어들기 가능 | `kind=decision` 메시지 + reviewer `[CONVERGED]` 마커 |
 | 3 | 통신·프로토콜·UI·언어 자유 | Python · subprocess + headless · JSONL · stdin/stdout TUI | `docs/runtime-docs/protocol.md` |
 | 4 | AI 코딩 에이전트로 개발 | 도구 자체를 Claude Code + Codex CLI로 페어 프로그래밍 | `prompts/01-bootstrap.md`, ... + git log |
 | 5 | README대로 실행 시 동작 | 3-step setup (clone → install → auth → run) + mock 모드 (인증 없이도 OK) | README 첫 단락 + 예제 |
@@ -186,7 +186,9 @@ flowchart TD
 | 입력 | task.md (또는 사용자 직접 입력 한 줄) |
 | 산출물 | `<workdir>/<file>.py` (또는 task에 따라) |
 | 사용자 개입 | 매 턴 6지선다 + directive |
-| 종료 | `e` 키 / `--max-turns` 도달 / reviewer "no critique" (Q6 결정) |
+| 종료 | `e` 키 / `--max-turns` 도달 / **연속 K=2턴 P0/P1=0 + [CONVERGED]** (Q6 = b 확정, default K=2, `--convergence-streak`로 조정) |
+
+"no critique" 자동 종료의 안전 마진 = K턴 streak. 단발 마커는 fix-induced regression을 못 봐 종료 조건 부적합 (ADR-9 참조). **`--max-turns < K+1`이면 K=1 자동 fallback** (Patch 5).
 
 reviewer는 task 충실도(P0/P1) + 일반 결함(P2) 둘 다 (Q16 ✅).
 
@@ -272,6 +274,7 @@ dialectic compare --task "@tasks/wave_difficulty/task.md" \
 - 비용 N배 → README에 추정치 명시 (`compare`는 turn당 ~$0.15 × N config)
 - mock 모드는 자연스럽게 병렬 안전 (파일 읽기만)
 - 인터랙티브 안 함 — `--decisions`/`--directives` 또는 `decisions.txt` 필수
+- compare는 `--interactive=end-only`와 의도 동등 (둘 다 비대화형). compare는 N config 병렬 + 메타 분석이 본질, end-only는 단일 run의 비대화형. 직교.
 
 #### 산출물 `compare.md` 구조
 
