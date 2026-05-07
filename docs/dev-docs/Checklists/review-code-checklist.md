@@ -22,6 +22,7 @@
 | JSON 파싱 raise 처리 | `json.loads()` 실패 시 raw 보존 + `kind=error` 메시지? | **P1** |
 | MAX_BUDGET 검증 | `--max-budget-usd` 또는 동등 안전장치 명시? | **P1** |
 | auth 실패 처리 | `AgentAuthError` 별도 클래스로 catch? 사용자에게 친절 안내? | **P1** |
+| **파일 I/O + subprocess `encoding="utf-8"` 명시** (R-001, P-ENCODING) | `Path.read_text()` / `write_text()` / `open()` + **`subprocess.run(text=True, ...)` 호출에 `encoding="utf-8"` 명시** 검사. `validation.md §2 R-001` 정식 규칙. role.md(한국어 본문) 누수 + 한국어 prompt → CLI stdin/stdout `LC_ALL=C` UnicodeEncodeError 차단 (round 5 사례 추가) | **P0** |
 
 ## 도메인 2: 인터페이스 (Interface)
 

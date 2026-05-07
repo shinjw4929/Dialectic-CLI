@@ -91,7 +91,9 @@ from dataclasses import dataclass
 class AgentResponse:
     text: str
     raw_path: Path
-    meta: dict     # vendor, model, session_id|thread_id, *_tokens, cost_usd, latency_ms, is_mock, workdir
+    meta: Meta     # frozen dataclass — schema.Meta 재사용 (14 필드, protocol.md §2)
+    stderr_excerpt: str | None = None  # 비정상 종료 시 stderr 발췌 (P-STDERR_LOSS).
+                                       # orchestrator 빈 응답 분기에서 _error_msg content에 합성 (protocol.md §9)
 
 class AgentRunner(Protocol):
     name: str             # "codex" | "claude" | "mock"
@@ -111,11 +113,12 @@ class AgentRunner(Protocol):
 - `run()`은 keyword-only 인자(`*`) 사용 — 인자 순서 의존 차단.
 - `AgentResponse`는 frozen — 호출 후 변경 불가.
 - 어댑터는 자기 raw stream을 `raw_log_path`에 직접 저장 (orchestrator가 후처리 안 함).
-- 인증 실패는 `AgentAuthError` (별도 정의), 일반 실패는 stdout/stderr를 캡처해 `AgentResponse.meta["error"]`에 담아 반환 (raise 안 함).
+- 인증 실패는 `AgentAuthError` (별도 정의), 일반 실패(빈 응답·비정상 종료)는 `AgentResponse.text=""`로 반환하고 raw stream에 stderr 보존. orchestrator가 `if not resp.text` 분기에서 `_error_msg`로 환원 (`Meta` frozen dataclass에 `error` 필드 부재 — 인덱싱 자체 불가능).
 
 **위반 사례**:
 - `claude.py`만 keyword-only 안 쓰고 positional 인자 받음 → 어댑터 비대칭
 - mock에서 `is_mock=true` 안 박음 → 정직성 위반
+- `AgentResponse.meta`를 `dict`로 두고 vendor별 임의 키 추가 → 타입 안전성·정직성 손상 (Meta 14 필드 schema 일관 강제)
 
 ---
 
