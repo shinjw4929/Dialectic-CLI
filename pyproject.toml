@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 dialectic = "src.cli:main"
+dialectic-skill = "src.dev_skill_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
