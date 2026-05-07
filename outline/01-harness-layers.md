@@ -79,6 +79,8 @@ flowchart TD
 - [ ] driver(implementer) proposal의 어느 부분(섹션/줄)을 가리키는지 인용
 - [ ] 같은 벤더(implementer와 동일 벤더) 시각으로는 놓칠 결함 1개 이상 (cross-vendor 진정성)
 - [ ] 질문은 1개 이내인가
+- [ ] **regression 검사**: 직전 턴 driver fix가 새 P0/P1을 도입했는지 검증 (N≥2일 때만)
+- [ ] **수렴 마커**: P0/P1 모두 0이면 응답 마지막 줄에 `[CONVERGED]` 단독 출력
 - [ ] 1500자 이내인가
 
 ### planner.md (plan 모드 driver 포지션)
@@ -98,6 +100,8 @@ flowchart TD
 - [ ] **P0** (입출력·시그니처 명세 부재) / **P1** (엣지케이스/비기능 누락) / **P2** (개선 제안) 라벨 분리
 - [ ] planner spec의 어느 섹션을 가리키는지 인용
 - [ ] 질문은 1개 이내인가
+- [ ] **regression 검사**: 직전 턴 planner spec 수정이 새 P0/P1을 도입했는지 검증 (N≥2일 때만)
+- [ ] **수렴 마커**: P0/P1 모두 0이면 응답 마지막 줄에 `[CONVERGED]` 단독 출력
 - [ ] 1500자 이내인가
 
 자가 일관성 강제. prompt cache로 비용 영향 미미. messages.jsonl에서 ROLE 준수 자명 확인 가능. 4 role 모두 동일 구조(셀프체크 + 본문)라 코드도 단일 인터페이스.
