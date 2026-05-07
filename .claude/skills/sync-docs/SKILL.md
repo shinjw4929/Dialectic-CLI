@@ -64,6 +64,18 @@ git diff --name-only                   # unstaged 기준
 이 항목들을 갱신한 뒤 `commit` 실행을 권장합니다.
 ```
 
+### 4.1 차단 신호
+
+누락 항목이 1+ 존재하면 보고 끝에 마지막 줄에:
+
+`SYNC_DOCS_STATUS: BLOCKED (n missing)`
+
+누락 0이면:
+
+`SYNC_DOCS_STATUS: OK`
+
+`commit` 스킬이 본 신호를 점검 — `BLOCKED` 시 분류표 작성 진입 차단.
+
 ### 5. 사용자 결정
 
 사용자가:

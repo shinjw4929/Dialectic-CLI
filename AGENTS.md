@@ -14,7 +14,10 @@
 - 자동 동의 금지. 사용자 지시가 코드·문서·결정 보드와 어긋나면 먼저 지적.
 - 단편 패치보다 근본 원인 추적. 자료구조·책임 통합으로 결함 클래스 자체 제거.
 - 표·다이어그램 적극 활용 (사용자가 짧고 정밀한 응답 선호).
-- **다이어그램은 mermaid 우선, ASCII art 금지**. ASCII는 정렬 공백·박스 유니코드(`─│┌┐└┘`)가 토크나이저에서 잘 안 묶여 mermaid 선언형(`A --> B`)보다 2~4배 토큰을 먹는다. 적용 범위: `.md` 문서, 사용자 응답 모두. 예외: 노드 2~3개의 inline linear flow(`A → B → C`)만 허용.
+- **다이어그램 출력 매체별 분리**:
+  - `.md` 문서 (commit·push되어 GitHub 등에서 렌더링됨) — **mermaid 우선**. 토큰 효율 + 렌더링 가능.
+  - **사용자 터미널 응답** — **ASCII art 우선**. 터미널은 mermaid를 렌더 못 함 (raw 코드 노출). `─│┌┐└┘` 박스 유니코드 또는 `+--+|+--+` ASCII 둘 다 OK.
+  - 예외 (양쪽 공통): 노드 2~3개 inline linear flow(`A → B → C`)는 자유 사용.
 - **첫 등장 축약어는 풀어쓰기**. 문서 단위(같은 `.md` 파일)·대화 세션 단위로 첫 등장 시 `ADR (Architecture Decision Record)` 형식. 이후 등장은 축약형. 예외: 일반적으로 풀어쓰지 않는 IT 표준어(API, CLI, JSON, URL, HTTP 등).
 - 본 도구의 핵심 thesis와 일관: cross-vendor diversity, dialectic 구조, .md 하네스 4계층, 실패→규칙 환원.
 
@@ -54,7 +57,7 @@
 
 1. **`sync-docs` 스킬 호출**:
    - `docs/dev-docs/Documentation-Checklist.md` 매핑 기준으로 누락된 .md 갱신 점검
-   - 누락 발견 시 갱신 후 재호출
+   - **누락 발견 시 갱신 후 commit. commit 스킬이 sync-docs `BLOCKED` 신호 시 분류표 진입 자동 차단.**
 2. **`review-code` 스킬 호출 (코드 변경 시)**:
    - 안전성·인터페이스·컨벤션 3 도메인 검사
    - **P0 결함 0** 확인 후 commit 진행
@@ -72,6 +75,8 @@
 ## 5. Skills
 
 `.claude/skills/SKILLS.md`가 인덱스. **Tier 구조**:
+
+Codex CLI는 `.claude/skills/*`를 canonical source로 두고, Codex 네이티브 도구 정책과 충돌하는 부분만 `docs/dev-docs/codex-compat.md`의 호환 정책으로 변환해 적용한다. `.codex/skills/<workflow>/SKILL.md`는 `$create-plan`, `$sync-docs`처럼 직접 호출 가능한 Codex native skill 포트이며, `.codex/skills/claude-skill-compat/SKILL.md`는 fallback 어댑터다. `dialectic-skill <workflow>`는 `$<workflow>` 명시 호출 문구를 생성한다. 특히 Claude Code의 `Agent(...)` / `Task tool` 지시는 Codex에서 사용자가 subagent·병렬 agent 작업을 명시 요청한 경우에만 `spawn_agent`로 해석하고, 그 외에는 메인 Codex 스레드에서 직접 수행한다.
 
 ### Tier 1 — 핵심 워크플로우 (자동 chaining 가능)
 
@@ -147,6 +152,7 @@
 - `docs/runtime-docs/protocol.md` — 런타임 메시지 스키마, 턴 라이프사이클
 - `docs/dev-docs/code-conventions.md` — Python·도구 specific 코드 규칙
 - `docs/dev-docs/Documentation-Checklist.md` — 변경 → .md 매핑 (Pre/Post Checklist 핵심)
+- `docs/dev-docs/codex-compat.md` — Codex의 `.claude/skills/*` 호환 정책 정본
 - `docs/dev-docs/Plans/plan-writing-guide.md` — plan AS-IS/TO-BE 형식
 - `docs/dev-docs/Checklists/review-plan-checklist.md` — review-plan 항목
 - `docs/dev-docs/Checklists/review-code-checklist.md` — review-code 항목

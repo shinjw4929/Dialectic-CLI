@@ -27,6 +27,18 @@ git diff --stat
 
 unstaged + staged 변경 모두 파악.
 
+### 1.5 sync-docs 점검 (drift 게이트)
+
+분류표 작성(§2) 진입 전:
+
+1. **escape 경로 점검** — `git diff --cached --name-only` 결과가 단일 `docs/dev-docs/Documentation-Checklist.md`이면 sync-docs skip (사용자 통지: "Documentation-Checklist.md 자체 수정 — drift 게이트 우회"). 사용자가 broken Checklist를 고치는 시나리오.
+2. `sync-docs` 자동 호출 (사용자 알림: "sync-docs 자동 점검 실행"). 캐시 X — 매번 신규 호출. 단순성 우선.
+3. `SYNC_DOCS_STATUS: BLOCKED` 시 → 분류표 작성 X. 사용자에게 누락 .md 갱신 권고 후 종료.
+4. **sync-docs 자체 실패 (Documentation-Checklist 못 읽기, git 명령 실패, 스킬 자체 예외 등) 시** → 분류표 작성 X. 사용자에게 sync-docs 오류 출력 보고 + commit 차단. fail-closed 정책.
+5. `SYNC_DOCS_STATUS: OK` 시 → §2 분류표 작성 진행.
+
+본 게이트는 자동 우회 옵션 X (회피 통로 만들면 게이트 무력화). 사용자가 의도적 누락이면 `Documentation-Checklist.md` 매핑 자체를 수정.
+
 ### 2. 의미 단위 분류표 작성
 
 변경된 파일들을 다음 기준으로 묶음:
