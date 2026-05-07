@@ -35,7 +35,16 @@ git diff --name-only                   # unstaged 기준
 `docs/dev-docs/Documentation-Checklist.md` §1을 읽어 각 변경 파일에 대해:
 
 - **변경 부위 행 찾기** (예: `src/agents/codex.py` → §1.1 "src/agents/codex.py" 행)
-- **갱신 대상 컬럼 추출** (예: "docs/runtime-docs/protocol.md §10, docs/dev-docs/code-conventions.md §3")
+- **갱신 대상 컬럼 추출** (예: "docs/runtime-docs/protocol.md §10, docs/dev-docs/code-conventions.md §3, **docs/dev-docs/systems/agents.md**")
+
+### 2.1 systems/ 진리문서 매핑 강제 검사 (NEW)
+
+`docs/{dev,runtime}-docs/systems/` 하위 진리문서는 **모듈/모드 SSOT** — 변경 영향이 직접적이라 누락 catch 우선순위 ↑:
+
+- `src/<module>.py` 변경 → `docs/dev-docs/systems/<module>.md` 갱신 매핑 (Documentation-Checklist §1.1) 필수
+- `MODE_ROLES`/`run_session`/`[CONVERGED]` 변경 → `docs/runtime-docs/systems/<mode>.md` (영향 모드) 갱신 + `INDEX.md` 매트릭스 갱신
+- 새 모듈/모드 추가 → systems/ 신규 .md 신설 + 해당 INDEX.md 한 줄 + Documentation-Checklist §1 매핑 행 추가
+- systems/ 변경이 Documentation-Checklist에 매핑 0이면 → 매핑 추가 권고 보고 (sync-docs 자체 진화)
 
 ### 3. 갱신 대상 vs 실제 변경 비교
 
@@ -88,6 +97,7 @@ git diff --name-only                   # unstaged 기준
 - 자동 .md 수정 금지 — 사용자 의도 모르는 채로 .md 변경 위험
 - Checklist에 없는 변경 부위는 "신규 매핑 필요" 보고 — 잠재 누락 가능성을 사용자에게 알림
 - "전체 OK" 응답 시에도 표 형식으로 명시 — 자동화 환경에서 검증 가능
+- **pytest/compileall 등 코드 회귀 검증 금지** — 본 스킬은 문서 매핑만 검증. 코드 회귀는 `review-code` 또는 `execute-plan` 책임. narrative만 갱신한 호출에서 pytest 실행은 토큰·시간 낭비 + 절차 분리 위반
 
 ## 한계
 

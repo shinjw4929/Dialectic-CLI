@@ -30,3 +30,5 @@ include = ["src*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = ["integration: 실 API 호출 — 수동 'pytest -m integration'"]
+addopts = "-m 'not integration'"

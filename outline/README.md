@@ -63,4 +63,7 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 ✅ Q16 reviewer 범위 = 기획 충실도(P0/P1) + 일반 결함(P2). 우선순위 라벨로 분리 (§4.5·§1.4)
 ✅ Q17 개발용 하네스 보강 = `docs/dev-docs/code-conventions.md` 신규 + `docs/dev-docs/assignment-requirements.md` 신규 + `docs/dev-docs/architecture.md`에 ADR 9개 표 인라인. 동선: README → req → arch → harness → code
 ✅ Q18 사용자 개입 default = critical (P0/P1 발견 시만 prompt, P2/0이면 자동 진행). --interactive {full,critical,end-only} 3단계 dial. Enter = iterate(빈 directive).
+🟡 Q19 setup.sh 후 dialectic PATH 노출 = 미정 (옵션: a) launcher wrapper(`./dialectic`이 venv python 호출) / b) `pipx install -e .` / c) venv activate 안내 명시). 첫 사용자 진입 SLA에 직결. README §3.1 setup.sh 항목에서 결정 필요 — 03-ux.md:9-15
+🟡 Q20 사전 의존성(Python·claude/codex CLI) 검증 책임 = 미정 (옵션: a) setup.sh가 검증 + 미설치 시 install URL 출력 / b) `dialectic` 실행 시점 환경 점검(§3.2)만 / c) 둘 다). 현재는 (b)만 있어 setup 단계에서 누락 사실을 모름 — 03-ux.md:107-122
+🟡 Q21 tasks/<id>/recordings/ git commit 정책 = 미정 (옵션: a) commit 필수 — 인증 부재 mock fallback 보장 / b) .gitignore + 첫 실행 시 다운로드 / c) 별도 브랜치). Q5·C(인증 부재 자동 mock fallback)의 전제 조건. Day 4 녹음 자산이 repo에 들어가는지 04-§4.4에 못 박혀야 함 — 04-requirements-and-modes.md:111-130, 05-timeline.md:100
 ```

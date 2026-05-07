@@ -183,11 +183,15 @@ Day 4 (5/9 토, 마감일, 종일 가용 — 가장 큰 작업 시간대)
 
 ### Day 3 — 인터랙티브 + plan/implement
 
+**Day 2 환원 후속 cross-check (Day 3 첫 작업 권고)**:
+- `validation.md §3 C-003` (P-VENDOR 어댑터 비대칭 docstring·returncode·env) — mock 어댑터 작업이 새 비대칭 통로인지 검증 후 R-002 정식 환원 결정
+- `validation.md §2 R-001` (P-ENCODING — Day 2에 정식 환원 완료) — mock 어댑터 raw_log 저장 시 `encoding="utf-8"` 자동 catch (review-code-checklist.md §1 P0 행)
+
 35. `src/ui.py` — 6지선다 + directive 입력 + 진행 spinner
 36. `src/cli.py` — argparse subcommand + 메뉴 fallback
 37. orchestrator MODE_ROLES dict — 모드↔role 매핑
 38. dialectic plan / implement 모드 (role 매핑만 변경)
-39. `src/agents/mock.py` + `--record` 옵션 (시간 남으면)
+39. `src/agents/mock.py` + `--record` 옵션 (시간 남으면) — **C-003 cross-check 시점**
 
 ### Day 4 — 마감
 

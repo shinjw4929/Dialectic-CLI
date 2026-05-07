@@ -2,7 +2,7 @@
 
 > Cross-vendor multi-agent collaboration through dialectic (thesis ↔ antithesis ↔ synthesis).
 
-> **Status (2026-05-07)**: Day 1 — `.md` 하네스 28 파일 완료. 코드 미구현. Day 2~4에 작성 예정.
+> **Status (2026-05-07)**: Day 2 — `run` 모드 한 턴 E2E 동작. driver(codex) → reviewer(claude) 한 턴 + JSONL bus + cwd 격리(ADR-6) + `[CONVERGED]` streak 자동 종료(ADR-9). `plan`/`implement`/`compare` 모드 + 사용자 인터랙티브 UI는 Day 3+.
 
 기획자가 task 한 줄을 던지면, **다른 벤더의 두 AI 코딩 에이전트**가 변증법 루프로 협업하고, 사용자가 매 턴 synthesis를 수행하는 도구.
 
@@ -55,11 +55,55 @@
 
 ---
 
-## 환경 (계획)
+## 환경 설정
 
 - Python 3.10+
-- 외부 의존성 0 (표준 라이브러리만)
-- 선택 도구: `claude` CLI v2.1+, `codex` CLI v0.128+
+- 외부 의존성 0 (표준 라이브러리만, dev: pytest)
+- `claude` CLI v2.1+ (Anthropic) + `codex` CLI v0.128+ (OpenAI)
+
+```bash
+pip install -e .
+dialectic doctor           # claude/codex --version + auth status (비용 0)
+```
+
+`dialectic doctor`가 인증 누락을 보고하면:
+- claude: `claude auth` (Max 구독 OAuth 또는 `ANTHROPIC_API_KEY` 환경변수)
+- codex: `codex login` (또는 `OPENAI_API_KEY` 환경변수)
+
+`--workdir` 안내 — 미지정 시 `tempfile.mkdtemp(prefix="dialectic-")`로 임시 dir 자동 생성. **Dialectic-CLI repo 루트는 ADR-6에 의해 사용 불가** (개발용 .md가 런타임 prompt에 누수되므로 SystemExit).
+
+---
+
+## 5초 데모
+
+```bash
+source .venv/bin/activate
+dialectic doctor                                           # 환경 점검
+dialectic run --task "Reply with single digit: 1+1=?" \
+    --workdir /tmp/dialectic-demo \
+    --driver codex --reviewer claude --max-turns 1
+cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + proposal + critique + meta)
+```
+
+## `dialectic run` CLI 옵션 (Day 2)
+
+| 옵션 | default | 설명 |
+|---|---|---|
+| `--task <text>` | (필수) | 사용자 task 한 줄 (driver/reviewer prompt §2 TASK 주입) |
+| `--workdir <path>` | `tempfile.mkdtemp(prefix='dialectic-')` | 작업 디렉토리. **Day 2: 미지정 시에도 cleanup X — 결과 확인 통로**. 종료 시 stderr에 workdir + `logs/messages.jsonl` 경로 안내. `/tmp/dialectic-*` 누적은 사용자가 주기 정리. **Dialectic-CLI repo 루트·하위 사용 불가** (ADR-6, SystemExit) |
+| `--driver {codex,claude}` | `codex` | thesis 발화 위치 |
+| `--reviewer {codex,claude}` | `claude` | antithesis 발화 위치 |
+| `--max-turns N` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)`. 양수만 (`_positive_int` 가드) |
+| `--mode {run}` | `run` | Day 2는 `run`만. plan/implement/compare는 Day 3+ |
+| `--convergence-streak K` | `2` | reviewer `[CONVERGED]` 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9: `--max-turns < K+1` 시 K=1 fallback + stderr 경고. 양수만 |
+| `--interactive {end-only}` | `end-only` | Day 2는 `end-only`만 (인터랙티브 미구현 — max-turns/streak까지 자동). Day 3+에서 full/critical 추가 |
+
+`dialectic doctor`는 인자 없음 — claude/codex `--version` + `auth/login status` + `claude doctor` 비용 0 점검.
+
+## 현재 동작 모드
+
+- **Day 2**: `run` 모드만 정식 검증 (driver+reviewer 한 턴 E2E + `[CONVERGED]` 자동 종료). `plan`/`implement`/`compare`는 **CLI `--mode` choices에 미노출** — `MODE_ROLES`/`ROLE_FILE` dict에만 키 선반영(Day 3+ 호환). 사용자가 `--mode plan` 호출 시 argparse error로 차단. Day 3+에서 인터랙티브 UI + spec 입력 메커니즘(`--spec @<path>`) + `--mode` choices 확장.
+- **Day 3+**: 사용자 6지선다 UI, mock 어댑터, `compare --parallel`, `dialectic logs`.
 
 ---
 

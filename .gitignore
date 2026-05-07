@@ -221,3 +221,6 @@ __marimo__/
 logs/
 workdir-tmp/
 tasks/*/recordings/
+
+# tests/test_cwd_isolation_integration.py 시나리오 sentinel 누수 차단 (ADR-6)
+CLAUDE.md.test-marker
