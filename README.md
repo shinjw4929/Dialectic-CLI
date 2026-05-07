@@ -45,6 +45,7 @@
 - **`docs/dev-docs/assignment-requirements.md`** — 과제 본문 ↔ 본 도구 매핑
 - **`docs/dev-docs/code-conventions.md`** — Python·도구 specific 규칙
 - **`docs/dev-docs/Documentation-Checklist.md`** — 변경 → .md 동기화 매핑
+- **`docs/dev-docs/codex-compat.md`** — Codex의 `.claude/skills/*` 호환 정책 정본
 - **`docs/dev-docs/validation.md`** — 결함 → 규칙 환원 (운영 중 채워짐)
 
 개발 흔적:
@@ -65,6 +66,20 @@
 ## 개발 / 기여
 
 `CLAUDE.md` (Claude Code) 또는 `AGENTS.md` (Codex CLI)가 개발용 진입점. 본 repo 자체가 Claude Code + Codex CLI 페어 프로그래밍으로 작성됨.
+
+Codex에서 포팅된 `.claude/skills/*` workflow를 `$sync-docs`처럼 명시적으로 호출하려면:
+
+```bash
+./dialectic-skill sync-docs
+
+# 또는 pip install -e . 이후:
+dialectic-skill
+dialectic-skill sync-docs
+dialectic-skill review-plan plan/001-run-mode-core
+dialectic-skill --show review-code
+```
+
+`dialectic-skill <workflow>`는 `docs/dev-docs/codex-compat.md`의 정책을 따르는 `$<workflow>` 명시 호출 문구를 출력한다. 출력된 문구를 Codex 대화에 넣으면 canonical `.claude/skills/<workflow>/SKILL.md` 절차가 Codex 방식으로 적용된다.
 
 ---
 
