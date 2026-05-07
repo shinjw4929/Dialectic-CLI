@@ -54,8 +54,8 @@ flowchart LR
 
 | 스킬 | 책임 | 검사 대상 | 결과 |
 |---|---|---|---|
-| [review-plan](review-plan/SKILL.md) | plan의 빠진 엣지케이스·모순·실현 가능성 검토 | `plan/<work-id>/` 산출물 | P0/P1/P2 결함 목록 + (재계획 필요 시) 사용자에게 수동 fix 요청 |
-| [review-code](review-code/SKILL.md) | 코드의 안전성/인터페이스/컨벤션 3 도메인 검사 | `src/` 코드 + 관련 .md | 도메인별 결함 목록. `validation.md` 환원 자료 |
+| [review-plan](review-plan/SKILL.md) | plan의 빠진 엣지케이스·모순·실현 가능성 검토. 결함 보고 시 P-id 인용 | `plan/<work-id>/` 산출물 | P0/P1/P2 결함 목록 + (재계획 필요 시) 사용자에게 수동 fix 요청 |
+| [review-code](review-code/SKILL.md) | 코드의 안전성/인터페이스/컨벤션 3 도메인 검사. 결함 보고 시 P-id 인용 | `src/` 코드 + 관련 .md | 도메인별 결함 목록. `validation.md` 환원 자료 |
 | [sync-docs](sync-docs/SKILL.md) | 코드 변경 → 갱신 누락된 .md 점검 | `Documentation-Checklist.md` 표 + 최근 변경 | 누락 매핑 보고 |
 
 ---
@@ -66,7 +66,7 @@ flowchart LR
 
 | 스킬 | 책임 | 호출 시점 |
 |---|---|---|
-| [commit](commit/SKILL.md) | 변경 분류표 → 사용자 확인 → 의미 단위 순차 커밋 | 작업 완료 후 |
+| [commit](commit/SKILL.md) | 변경 분류표 → 사용자 확인 → 의미 단위 순차 커밋. sync-docs `BLOCKED` 시 분류표 진입 자동 차단 | 작업 완료 후 |
 
 ---
 
@@ -75,6 +75,7 @@ flowchart LR
 - **Tier 1은 자동 chaining 가능**: 한 명령으로 plan→review→execute 흐름이 이어질 수 있음. 단 review-plan은 결함 발견 시 자동 fix 안 하고 사용자에게 보고.
 - **Tier 2는 수동**: dogfooding 시연용. 본 도구의 핵심 thesis "사용자=synthesis 생성자"가 dev-time에도 적용 — 도구가 자기 검증 결과를 보고만 하고 결정은 사용자.
 - **독립은 수시**: commit 같은 발신 작업은 chain 밖.
+- **Codex 호환**: Codex CLI는 `.claude/skills/*`를 canonical source로 읽고, `.codex/skills/<workflow>/SKILL.md` 포트를 통해 `$create-plan`, `$sync-docs`처럼 직접 호출한다. 포트는 `docs/dev-docs/codex-compat.md`의 override로 Claude Code 전용 `Agent(...)` / `Task tool` 표현을 Codex 도구 정책에 맞게 변환한다.
 
 ---
 
