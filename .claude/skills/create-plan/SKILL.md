@@ -36,7 +36,7 @@ plan/<work-id>/
 
 사용자 입력에서 추출:
 - **작업 단위 식별**: 한 plan으로 다룰 범위 (너무 크면 사용자에게 분할 제안)
-- **work-id 부여**: `001-`, `002-` 등 순차 또는 의미 단위 (`codex-adapter`, `cwd-isolation`). 기존 `plan/` 폴더와 충돌 검사.
+- **work-id 부여**: `001-`, `002-` 등 순차 또는 의미 단위 (`codex-adapter`, `cwd-isolation`). 충돌 검사 시 **`plan/` 루트뿐 아니라 `plan/completed/` 하위까지 모두 조회** — 완수된 plan ID도 재사용 금지 (commit history 추적 모호 차단). `ls plan/ plan/completed/` 또는 `find plan -maxdepth 2 -type d` 사용.
 - **관련 ADR/Q 검색**: `docs/dev-docs/architecture.md` ADR 표, `outline/README.md` 결정 보드에서 매칭 항목.
 
 ### 2. AS-IS 조사

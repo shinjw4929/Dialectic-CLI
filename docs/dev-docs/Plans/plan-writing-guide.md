@@ -21,7 +21,7 @@ plan/<work-id>/
 
 ### 1.2 명명 규칙
 
-- `<work-id>`: 작업 단위 ID. 의미 단위 (예: `001-run-mode-core`, `002-mock-adapter`, `compare-mode`).
+- `<work-id>`: 작업 단위 ID. 의미 단위 (예: `001-run-mode-core`, `002-mock-adapter`, `compare-mode`). 충돌 검사 시 `plan/` 루트뿐 아니라 `plan/completed/` 하위까지 모두 조회 — 완수된 plan ID도 재사용 금지.
 - **인덱스 파일**: `00-plan.md`. `00-` 접두사는 폴더 정렬상 phase 파일들보다 먼저 오게 하는 의도(`ls` 시 인덱스가 맨 위). 다른 이름(`00-orchestration.md` 등)도 가능하지만 **반드시 알파벳 정렬상 phase 파일보다 앞**.
 - 파일명: `phase-<id>-<slug>.md`
   - `<id>`: 알파벳(`a`, `b`, `c`, ...). 00-plan.md의 mermaid Phase 라벨과 일치 (대소문자 같이 고정).
