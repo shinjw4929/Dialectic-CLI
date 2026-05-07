@@ -84,6 +84,21 @@ flowchart TB
 }
 ```
 
+### 타임스탬프 정책
+
+`ts` 필드는 **MUST UTC ISO8601 with `Z` 접미사**. `pyproject.toml` `requires-python = ">=3.10"` 기준 (3.10 호환):
+
+- import: `from datetime import datetime, timezone`
+- 생성: `datetime.now(tz=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')`
+- **금지**: 
+  - TZ-naive `datetime.now()` (로컬 타임존 누수)
+  - `datetime.utcnow()` (Python 3.12+ deprecated, TZ-naive 반환)
+  - `datetime.UTC` 상수 (Python 3.11+ alias — 3.10 호환 보장 위해 `timezone.utc` 사용)
+
+src/schema.py에서 ts 필드를 dataclass field로 정의 시 frozen + str 타입. 검증은 `tests/test_schema.py`에서 정규식 `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$` 매치 검사.
+
+ADR-1 (JSONL bus) 정합 — 재현성·로그 비교를 위해 timezone 일관성 강제.
+
 ### `kind` 값별 의미
 
 | kind | 발생 시점 | from |
