@@ -1,6 +1,6 @@
 # Dialectic-CLI 계획 — 인덱스
 
-> 갱신: 2026-05-07 — Q1~Q3·Q5·Q7·Q9~Q17 결정 반영, Q4·Q6·Q8 보류(결정 시점 명시).
+> 갱신: 2026-05-07 — Q1~Q3·Q5~Q7·Q9~Q18 결정 반영, Q4·Q8 보류(결정 시점 명시).
 > 파일 번호 ↔ §번호 정렬. 하네스(§1)가 첫 번째.
 
 ## 파일 구성
@@ -15,7 +15,7 @@
 
 본 README에 포함:
 - §0 사전 확인 결과 (초기 가정 검증) — 환경/도구
-- §6 결정 상태 보드 (Q1~Q17)
+- §6 결정 상태 보드 (Q1~Q18)
 
 cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 보고 해당 파일에서 찾는다.
 
@@ -50,7 +50,7 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 ✅ Q3  관찰 = 내장 `dialectic logs` 서브커맨드 (외부 명령 안내 X). 도구 자체가 1차 인터페이스
 🟡 Q4  데모 task = Day 1 .md 끝 직후 결정 (Q13 따라 wave_difficulty 1순위)
 ✅ Q5  mock 모드 = 사전녹음 재생 + --record 플래그 + 인증 부재 시 자동 fallback (Q12·C)
-🟡 Q6  종료 조건 = Day 2 첫 E2E 후 결정 (a/b/c 셋 다 권고)
+✅ Q6  종료 조건 = b 우선 (reviewer [CONVERGED] 마커 + 연속 K=2턴 P0/P1=0 → 자동 e). 안전망: a (--max-turns), c (사용자 e/Ctrl-C). K는 --convergence-streak 조정.
 ✅ Q7  UI = A로 시작, Day 3에 rich 부분 도입 검토 (C는 스코프 외)
 🟡 Q8  녹화 = Day 3 시점 결정 (asciinema 우선, mp4 백업)
 ✅ Q9  배치 = dialectic compare --parallel (별도 서브커맨드, 비대화형)
@@ -61,5 +61,6 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 ✅ Q14 CLI/메뉴 = 둘 다 (인자 부재 시 메뉴 fallback, 모든 인자 시 즉시 실행). compare는 인자만 (§3)
 ✅ Q15 폴더 명칭 = 영어 (`specs/`). 한국어 narrative는 README/UI 문구로
 ✅ Q16 reviewer 범위 = 기획 충실도(P0/P1) + 일반 결함(P2). 우선순위 라벨로 분리 (§4.5·§1.4)
-✅ Q17 개발용 하네스 보강 = `docs/dev-docs/code-conventions.md` 신규 + `docs/dev-docs/assignment-requirements.md` 신규 + `docs/dev-docs/architecture.md`에 ADR 8개 표 인라인. 동선: README → req → arch → harness → code
+✅ Q17 개발용 하네스 보강 = `docs/dev-docs/code-conventions.md` 신규 + `docs/dev-docs/assignment-requirements.md` 신규 + `docs/dev-docs/architecture.md`에 ADR 9개 표 인라인. 동선: README → req → arch → harness → code
+✅ Q18 사용자 개입 default = critical (P0/P1 발견 시만 prompt, P2/0이면 자동 진행). --interactive {full,critical,end-only} 3단계 dial. Enter = iterate(빈 directive).
 ```
