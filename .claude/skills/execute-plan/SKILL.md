@@ -109,6 +109,22 @@ phase 파일 §5(검증) 명령어 그대로 실행:
 
 미달 항목이 있으면 사용자에게 보고. 자동으로 다른 스킬 호출 X (단 sync-docs는 phase 끝마다 자동 호출 가능).
 
+### 5.5 plan 완수 → `plan/completed/` 이동 (commit 직전 필수)
+
+DoD 체크박스 모두 만족 + sync-docs `OK` 통과 시, **commit 스킬 호출 직전**에:
+
+```bash
+mkdir -p plan/completed
+mv plan/<work-id> plan/completed/<work-id>
+```
+
+이유:
+- `plan/` 루트에는 **현재 작업 중·예정** plan만 남음 — `ls plan/` 결과가 진행 상태 자명
+- 완수 plan은 `plan/completed/` 아래에 누적 — 과거 작업 흔적 보존하면서 active와 분리
+- commit 스킬은 **이동된 경로**(`plan/completed/<work-id>/`)로 산출물 추가 — 이동·재commit 분리 시 commit 메시지가 모호해짐 (`Add plan/<work-id>` vs `Move plan/<work-id> to completed`)
+
+이미 commit 한 후 발견했으면 `git reset --mixed HEAD~N` (commit N개 되돌림, 변경 보존) → 이동 → 재commit. 자동 fix X — 사용자 결정 후 진행.
+
 ### 6. 사용자 보고
 
 ```markdown
