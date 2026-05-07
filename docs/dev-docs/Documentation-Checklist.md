@@ -22,12 +22,15 @@
 | `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증) |
 | `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령 |
 | `src/ui.py` (사용자 개입 UI) | `outline/03-ux.md` §2.2/2.3 |
+| `src/dev_skill_cli.py` (dev-time 스킬 wrapper) | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `AGENTS.md`/`CLAUDE.md` Skills §5, `docs/dev-docs/codex-compat.md` Command Wrapper, `.codex/skills/<workflow>/SKILL.md` 존재 검증 |
+| `dialectic-skill` repo-root wrapper | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `pyproject.toml` console script와 동작 일치 검증 |
 
 ### 1.2 런타임 .md 변경 (B 층)
 
 | 변경 부위 | 갱신 대상 |
 |---|---|
-| `docs/runtime-docs/protocol.md` 메시지 스키마 | `src/schema.py`, `src/bus.py`, `tests/test_schema.py`, `docs/dev-docs/architecture.md` §5 인용 부분 |
+| `docs/runtime-docs/protocol.md` 메시지 스키마 **필드** 변경 (필드 추가·제거·자료형 변경) | `src/schema.py`, `src/bus.py`, `tests/test_schema.py`, `docs/dev-docs/architecture.md` §5 인용 부분 |
+| `docs/runtime-docs/protocol.md` 정책 단락 추가 (MUST/SHOULD 표현, example 갱신, docstring) | (mapping 외 — sync-docs 게이트 영향 X) |
 | `docs/runtime-docs/protocol.md` 모드 추가 | `src/orchestrator.py` MODE_ROLES, `docs/runtime-docs/roles/<new>.md` 작성, `docs/dev-docs/architecture.md` §4, `README.md` 4 모드 표 |
 | `docs/runtime-docs/roles/<role>.md` 셀프체크 형식 | `docs/runtime-docs/protocol.md` §5 4섹션 프롬프트 (셀프체크 인용 부분), `outline/01-harness-layers.md` §1.4 |
 | `docs/dev-docs/validation.md` 새 결함 패턴 | 해당 패턴이 적용될 `docs/runtime-docs/roles/*.md` 셀프체크에 항목 추가 검토 |
@@ -45,6 +48,9 @@
 | 변경 부위 | 갱신 대상 |
 |---|---|
 | `.claude/skills/<skill>/SKILL.md` 본문 변경 | `.claude/skills/SKILLS.md` 인덱스의 해당 항목 한 줄 설명 (어긋나지 않게) |
+| `docs/dev-docs/codex-compat.md` 변경 | `AGENTS.md`/`CLAUDE.md` Codex 호환 안내, `.claude/skills/SKILLS.md` Codex 호환 원칙, `.codex/skills/<workflow>/SKILL.md` 포트 참조 |
+| `.codex/skills/<workflow>/SKILL.md` 변경 | 대응 `.claude/skills/<workflow>/SKILL.md` 정본 경로와 `docs/dev-docs/codex-compat.md` override 적용 여부 검증 |
+| `.codex/skills/claude-skill-compat/SKILL.md` 변경 | `docs/dev-docs/codex-compat.md`와 어댑터 책임 일치 검증, `AGENTS.md`/`CLAUDE.md` Codex 호환 레이어 안내 |
 | 새 스킬 추가 | `.claude/skills/SKILLS.md` 인덱스 (Tier 분류), `CLAUDE.md`/`AGENTS.md` 스킬 사용 안내 (필요 시) |
 | `.claude/skills/review-plan/SKILL.md` | `docs/dev-docs/Checklists/review-plan-checklist.md` (검사 항목 동기화) |
 | `.claude/skills/review-code/SKILL.md` | `docs/dev-docs/Checklists/review-code-checklist.md` (검사 항목 동기화) |
@@ -72,6 +78,9 @@
 | 새 ADR 결정 | `docs/dev-docs/architecture.md` §6 ADR 표, `outline/README.md` 결정 보드 (Q번호) |
 | 모드 추가/제거 | `docs/dev-docs/architecture.md` §4 데이터 흐름, `docs/runtime-docs/protocol.md` §3, `src/orchestrator.py` MODE_ROLES, README 4 모드 표, 새 role.md 작성 (필요 시) |
 | 포지션/역할/벤더 3축 변경 | `docs/dev-docs/architecture.md` §4, `docs/runtime-docs/protocol.md` §1.0, `src/cli.py` 인자 |
+| interactive default 변경 (Q18) | `outline/03-ux.md` §3.1·§3.3, `outline/02-communication.md` §2.3, `outline/04-requirements-and-modes.md` §4.1·§4.5.1 |
+| [CONVERGED] 마커 약속 (ADR-9) | `docs/runtime-docs/roles/{spec,plan}-reviewer.md`, `outline/02-communication.md` §2.9, `outline/01-harness-layers.md` §1.4 |
+| ADR 추가 (ADR-9) | `docs/dev-docs/architecture.md` §6, `outline/README.md` §6 |
 
 ---
 
