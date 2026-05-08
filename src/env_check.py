@@ -1,6 +1,10 @@
-"""환경 점검 — claude/codex --version + auth/login status + claude doctor.
+"""환경 점검 — claude/codex --version + auth/login status (벤더 대칭, P-VENDOR 환원).
 
 비용 0 호출 (token 사용 없음). code-conventions.md §3 (`:31-58`) cwd 명시 + 화이트리스트 정합.
+`claude doctor`는 영구 제외 (validation.md §4.4 P-VENDOR 환원 사례 1, 2026-05-09):
+- codex 외부 subprocess doctor 동등 명령 부재 (`/status`는 codex CLI 내부)
+- `claude doctor` capture_output=True 호출 시 tty/pipe 분기로 30s+ hang
+- 사용자가 doctor 결과 필요 시 `claude doctor` 직접 호출
 """
 
 import os
@@ -34,13 +38,22 @@ def _safe_env() -> dict[str, str]:
 
 
 def check_env() -> dict[str, dict[str, dict[str, Any]]]:
-    """비용 0 환경 점검 — claude/codex --version + auth/login status + claude doctor."""
+    """비용 0 환경 점검 — claude/codex --version + auth/login status (벤더 대칭).
+
+    `claude doctor`는 영구 제외 (P-VENDOR 차단):
+    - codex는 외부 subprocess로 부를 doctor 동등 명령 부재 (`/status`는 codex CLI 내부
+      슬래시 명령, subprocess 호출 불가). 본 도구가 claude doctor만 부르면 벤더 비대칭.
+    - 본 도구 책임은 "두 CLI가 설치 + 인증 통과"까지. claude doctor의 connectivity
+      check 등은 claude CLI 자체 진단 — 외부 도구 scope 외.
+    - 일부 환경에서 `claude doctor`가 capture_output 호출 시 tty/pipe 분기로 30s+ hang
+      (사용자 환경 사례: tty 0.5s vs pipe 12s+). PTY wrap (~30 LOC) 회피보다 영구 제외 단순.
+    - 사용자가 doctor 결과 필요 시 `claude doctor` 직접 호출 (외부 도구).
+    """
     env_pass = _safe_env()
     return {
         "claude": {
             "version": _run_capture(["claude", "--version"], env=env_pass, timeout=5),
             "auth":    _run_capture(["claude", "auth", "status"], env=env_pass, timeout=10),
-            "doctor":  _run_capture(["claude", "doctor"], env=env_pass, timeout=30),
         },
         "codex": {
             "version": _run_capture(["codex", "--version"], env=env_pass, timeout=5),

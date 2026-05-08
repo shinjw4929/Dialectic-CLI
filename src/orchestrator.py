@@ -29,6 +29,7 @@ from .agents.codex import CodexRunner
 from .bus import Bus
 from .patch_apply import apply_patches, extract_patches
 from .schema import Message, Meta
+from .ui import ROLE_LABEL_KO, VENDOR_LABEL, Spinner, print_message, stdin_canonical_off
 
 MODE_ROLES = {
     "run":       {"driver": "implementer", "reviewer": "spec-reviewer"},
@@ -332,9 +333,15 @@ def run_turn(
     raw1 = sessions_dir / f"{turn_id}-driver-{uuid4().hex[:8]}.jsonl"
     # build_prompt를 try 안으로 — role.md 부재(FileNotFoundError) / 디코딩 실패(UnicodeDecodeError) /
     # 권한(PermissionError → OSError) 누수 차단 (C-007 패턴). catch 튜플 확장 (C-005).
+    driver_label = ROLE_LABEL_KO.get(driver_role, driver_role)
+    driver_vendor = VENDOR_LABEL.get(driver_runner.name, driver_runner.name)
+    driver_spinner_msg = f"[{driver_label}: {driver_vendor}] running..."
     try:
-        p1 = build_prompt(driver_role, task, history, directive=None)
-        resp1 = driver_runner.run(p1, raw_log_path=raw1, timeout_s=DEFAULT_TIMEOUT_S, workdir=workdir)
+        # stdin_canonical_off + Spinner: 호출 동안 사용자 키 누름이 다음 prompt에 누수되는
+        # 결함 차단 (line discipline off + drain thread + INTR 보존). 자세히는 src/ui.py.
+        with stdin_canonical_off(), Spinner(driver_spinner_msg):
+            p1 = build_prompt(driver_role, task, history, directive=None)
+            resp1 = driver_runner.run(p1, raw_log_path=raw1, timeout_s=DEFAULT_TIMEOUT_S, workdir=workdir)
     except (
         subprocess.TimeoutExpired, json.JSONDecodeError, AgentAuthError,
         FileNotFoundError, OSError, UnicodeDecodeError, ValueError,
@@ -369,6 +376,13 @@ def run_turn(
         resp1.text, parent_id=last_msg_id, meta=proposal_meta,
     )
     bus.append(proposal)
+    print_message(
+        role_label=ROLE_LABEL_KO.get(driver_role, driver_role),
+        vendor_label=VENDOR_LABEL.get(driver_runner.name, driver_runner.name),
+        kind="proposal",
+        text=resp1.text,
+        meta=proposal_meta,
+    )
 
     if patches:
         status, error, files_changed = apply_patches(patches, workdir=workdir)
@@ -388,9 +402,14 @@ def run_turn(
     # ---- reviewer ----
     reviewer_role = roles["reviewer"]
     raw2 = sessions_dir / f"{turn_id}-reviewer-{uuid4().hex[:8]}.jsonl"
+    reviewer_label = ROLE_LABEL_KO.get(reviewer_role, reviewer_role)
+    reviewer_vendor = VENDOR_LABEL.get(reviewer_runner.name, reviewer_runner.name)
+    reviewer_spinner_msg = f"[{reviewer_label}: {reviewer_vendor}] running..."
     try:
-        p2 = build_prompt(reviewer_role, task, bus.read_all(), directive=None)
-        resp2 = reviewer_runner.run(p2, raw_log_path=raw2, timeout_s=DEFAULT_TIMEOUT_S, workdir=workdir)
+        # stdin_canonical_off + Spinner: driver와 동일 — 호출 동안 stdin 누수 차단.
+        with stdin_canonical_off(), Spinner(reviewer_spinner_msg):
+            p2 = build_prompt(reviewer_role, task, bus.read_all(), directive=None)
+            resp2 = reviewer_runner.run(p2, raw_log_path=raw2, timeout_s=DEFAULT_TIMEOUT_S, workdir=workdir)
     except (
         subprocess.TimeoutExpired, json.JSONDecodeError, AgentAuthError,
         FileNotFoundError, OSError, UnicodeDecodeError, ValueError,
@@ -425,6 +444,13 @@ def run_turn(
         resp2.text, parent_id=proposal.msg_id, meta=critique_meta,
     )
     bus.append(critique)
+    print_message(
+        role_label=ROLE_LABEL_KO.get(reviewer_role, reviewer_role),
+        vendor_label=VENDOR_LABEL.get(reviewer_runner.name, reviewer_runner.name),
+        kind="critique",
+        text=resp2.text,
+        meta=critique_meta,
+    )
 
 
 def run_session(args: argparse.Namespace) -> int:
