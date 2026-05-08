@@ -52,6 +52,25 @@ cleanup = False  # Day 2: --workdir 미지정 시에도 결과 보존 (사용자
 
 `Path.resolve()`로 symlink + 상대경로 해소 → `workdir`이 항상 절대 정규 경로. `meta.workdir = str(workdir)` 박힘 (재현성).
 
+### Layer 4: 쓰기 경계 — search-replace patch FILE 경로 검증 (ADR-10)
+
+driver 응답의 `FILE: <path>` 헤더를 search-replace 블록과 함께 추출해 orchestrator가 workdir 파일을 수정한다. driver가 `FILE: ../etc/passwd` 또는 `FILE: /tmp/foo` 같은 외부 경로를 지정하면 cwd 격리(읽기 경계)를 우회해 임의 파일에 쓰기 가능 — 이를 차단:
+
+```python
+# spec
+def validate_patch_path(workdir: Path, file: str) -> Path:
+    """FILE 경로를 workdir 내부로 정규화 + 외부 차단.
+
+    1. Path(workdir).resolve() / Path(file)로 결합 후 .resolve()
+    2. resolved.is_relative_to(workdir.resolve())로 prefix 검사
+    3. symlink escape도 strict=False resolve 후 동일 검사
+    """
+```
+
+R2.6 `apply_patches` 진입 직전 모든 patch의 FILE 경로를 본 함수로 검증. 1개라도 외부면 즉시 `apply_status=failed, apply_error="path outside workdir: <file>"` 기록 (all-or-nothing 트랜잭션). symlink escape는 `Path.resolve(strict=False)` 후 동일 prefix 검사.
+
+→ `outline/02-communication.md` §2.3 R2.6 노드 텍스트, §2.8 실패 모드 표 "Patch FILE 경로 workdir 외부" 행, `protocol.md` §4 R2.6 + §9와 1:1 일치.
+
 ### Layer 3: 어댑터 옵션으로 cwd 자동 로드 보강
 
 | 어댑터 | 옵션 | 효과 |

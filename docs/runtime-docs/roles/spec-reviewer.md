@@ -81,7 +81,8 @@ P0 또는 P1이 1개 이상이면 마커 출력 X. 본문 인용에 `[CONVERGED]
 - [ ] driver(implementer) proposal의 어느 부분(섹션/줄)을 가리키는지 인용했는가
 - [ ] 같은 벤더(implementer와 동일 벤더) 시각으로는 놓칠 결함을 1개 이상 포함했는가 (cross-vendor 진정성)
 - [ ] 질문은 1개 이내인가 (질문 폭주는 dialectic 흐름 방해)
-- [ ] **regression 검사**: 직전 턴 driver의 fix가 새 P0/P1을 도입했는지 명시 검증 (HISTORY 마지막 driver proposal과 그 이전 proposal의 diff 시각으로). 새 결함 발견 시 P0 또는 P1로 보고.
+- [ ] **regression 검사**: 직전 턴 driver의 fix가 새 P0/P1을 도입했는지 명시 검증 (HISTORY 마지막 driver proposal과 그 이전 proposal의 diff 시각으로). 코드 수정 턴이면 직전 `kind=patch_applied` 메시지의 `apply_status` + `files_changed`를 보고 변경된 파일의 신규 회귀 검사 (ADR-10). 새 결함 발견 시 P0 또는 P1로 보고.
+- [ ] (직전 턴 `kind=patch_applied, apply_status=failed`인 경우) driver의 SEARCH 블록이 왜 미일치였는지 critique에 포함 (LLM 자가 진단)
 - [ ] **수렴 마커**: P0/P1 모두 0이면 응답 마지막 줄에 `[CONVERGED]` 단독 출력. P0 또는 P1 ≥ 1이면 마커 출력 X.
 - [ ] 1500자 이내인가
 
