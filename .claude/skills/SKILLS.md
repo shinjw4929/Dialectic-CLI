@@ -55,8 +55,8 @@ flowchart LR
 | 스킬 | 책임 | 검사 대상 | 결과 |
 |---|---|---|---|
 | [review-plan](review-plan/SKILL.md) | plan의 빠진 엣지케이스·모순·실현 가능성 검토. 결함 보고 시 P-id 인용 | `plan/<work-id>/` 산출물 | P0/P1/P2 결함 목록 + (재계획 필요 시) 사용자에게 수동 fix 요청 |
-| [review-code](review-code/SKILL.md) | 코드의 안전성/인터페이스/컨벤션 3 도메인 검사. 결함 보고 시 P-id 인용 | `src/` 코드 + 관련 .md | 도메인별 결함 목록. `validation.md` 환원 자료 |
-| [sync-docs](sync-docs/SKILL.md) | 코드 변경 → 갱신 누락된 .md 점검 | `Documentation-Checklist.md` 표 + 최근 변경 | 누락 매핑 보고 |
+| [review-code](review-code/SKILL.md) | 코드의 안전성/인터페이스/컨벤션 3 도메인 검사. 결함 보고 시 P-id 인용 | 변경 코드 + untracked 신규 코드 + 관련 계약 .md | 도메인별 결함 목록. `validation.md` 환원 자료 |
+| [sync-docs](sync-docs/SKILL.md) | 코드/.md 변경과 새 문서 추가 → 갱신 누락된 .md 점검 | `Documentation-Checklist.md` 표 + 최근 변경 + untracked 신규 파일 | 누락 매핑 보고 |
 
 ---
 

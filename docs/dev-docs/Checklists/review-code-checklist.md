@@ -59,6 +59,7 @@
 | 주석 정책 — WHAT 주석 | "this iterates over list" 같은 자명한 주석? | **P2** |
 | 주석 정책 — 이전 작업 참조 | "이건 turn loop에서 호출됨", "wave_difficulty task에서 발견" 같은 주석? | **P2** |
 | TODO 표기 | `# TODO(YYYY-MM-DD)` 형식? 날짜 누락? | **P2** |
+| 검사 대상 수집 | 기본 대상에 `git diff --name-only HEAD~1 HEAD`, `--cached`, unstaged, `git ls-files --others --exclude-standard`의 신규 `*.py`가 모두 포함됐나? | **P1** |
 | README 정합성 | 새 CLI 옵션·서브커맨드가 README에 반영? | **P1** |
 | docs/runtime-docs/protocol.md 정합성 | 어댑터·orchestrator 변경이 protocol.md에 반영? (sync-docs 결과와 cross-check) | **P1** |
 | Documentation-Checklist 매핑 | 변경 유형이 §1에 매핑되어 있나? 누락이면 매핑 추가? | **P1** |

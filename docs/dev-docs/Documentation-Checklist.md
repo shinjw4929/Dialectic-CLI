@@ -55,12 +55,12 @@ docs/
 | `src/agents/codex.py` (Codex 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3, **`docs/dev-docs/systems/agents.md`** |
 | `src/agents/claude.py` (Claude 호출 옵션·인자) | `docs/runtime-docs/protocol.md` §10, `docs/dev-docs/code-conventions.md` §3, **`docs/dev-docs/systems/agents.md`** |
 | `src/agents/mock.py` (재생 로직) | `docs/runtime-docs/protocol.md` §8 mock 어댑터, README 5초 데모 명령, `tasks/<task>/recordings/` 형식, **`docs/dev-docs/systems/agents.md`** |
-| `src/orchestrator.py` 턴 라이프사이클 | `docs/runtime-docs/protocol.md` §4 turn lifecycle, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/<mode>.md` (영향 받는 모드)** |
+| `src/orchestrator.py` 턴 라이프사이클 | `docs/runtime-docs/protocol.md` §4 turn lifecycle, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/<mode>.md` (영향 받는 모드)**, **`docs/current-implementation-flow.md` (한눈 흐름 변경 시)** |
 | `src/orchestrator.py` MODE_ROLES dict | `docs/runtime-docs/protocol.md` §3 모드↔role 매핑, `docs/dev-docs/architecture.md` §4, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/INDEX.md`** 4 모드 매트릭스 |
 | `src/bus.py` (JSONL writer·flush 정책) | `docs/runtime-docs/protocol.md` §2, `docs/dev-docs/code-conventions.md` §4, **`docs/dev-docs/systems/jsonl-bus.md`** |
 | `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증), **`docs/dev-docs/systems/jsonl-bus.md` §schema** |
 | `src/env_check.py` (`dialectic doctor` 점검 항목) | **`docs/dev-docs/systems/env-check.md`**, README §환경설정 |
-| `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령, **`docs/dev-docs/systems/orchestrator.md` §cli**, **`docs/runtime-docs/systems/<mode>.md` §1** |
+| `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령, **`docs/dev-docs/systems/orchestrator.md` §cli**, **`docs/runtime-docs/systems/<mode>.md` §1**, **`docs/current-implementation-flow.md` (명령 표면 변경 시)** |
 | subprocess `cwd=` 또는 ADR-6 차단 메커니즘 (横단) | **`docs/dev-docs/systems/cwd-isolation.md`**, `docs/dev-docs/architecture.md` ADR-6, `outline/01-harness-layers.md` §1.3 |
 | `src/ui.py` (사용자 개입 UI) | `outline/03-ux.md` §2.2/2.3 |
 | `src/dev_skill_cli.py` (dev-time 스킬 wrapper) | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `AGENTS.md`/`CLAUDE.md` Skills §5, `docs/dev-docs/codex-compat.md` Command Wrapper, `.codex/skills/<workflow>/SKILL.md` 존재 검증 |
@@ -83,6 +83,7 @@ docs/
 | `CLAUDE.md` / `AGENTS.md` Pre/Post Checklist 변경 | 양쪽 동기화 (둘이 어긋나면 안 됨), 해당 항목이 가리키는 .md 경로 검증 |
 | `docs/dev-docs/code-conventions.md` 규칙 추가 | `.claude/skills/review-code/SKILL.md` 검사 항목, `docs/dev-docs/Checklists/review-code-checklist.md` |
 | 본 파일(`Documentation-Checklist.md`) 매핑 추가 | `.claude/skills/sync-docs/SKILL.md` 동작 검증 (새 매핑이 자동 점검에 포함되는지) |
+| `docs/current-implementation-flow.md` 변경 | 본 문서는 루트 요약 지도. 세부 정본 변경 없이 요약만 갱신한 경우 추가 대상 없음. 흐름·CLI·종료 조건 의미 변경이면 해당 systems/protocol 정본 문서가 먼저 갱신됐는지 검증 |
 
 ### 1.4 스킬·체크리스트 변경
 

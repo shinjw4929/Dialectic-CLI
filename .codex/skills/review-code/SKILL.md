@@ -1,6 +1,6 @@
 ---
 name: review-code
-description: Use this in Dialectic-CLI when the user asks Codex to review code using the canonical .claude review-code workflow. Applies Codex compatibility rules from docs/dev-docs/codex-compat.md.
+description: Use this in Dialectic-CLI when the user asks Codex to review code, including changed and untracked code files, using the canonical .claude review-code workflow. Applies Codex compatibility rules from docs/dev-docs/codex-compat.md.
 ---
 
 # review-code

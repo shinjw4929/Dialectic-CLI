@@ -1,6 +1,6 @@
 ---
 name: sync-docs
-description: Use this in Dialectic-CLI when the user asks Codex to check documentation synchronization using the canonical .claude sync-docs workflow. Applies Codex compatibility rules from docs/dev-docs/codex-compat.md.
+description: Use this in Dialectic-CLI when the user asks Codex to check documentation synchronization for code/.md changes or newly added docs using the canonical .claude sync-docs workflow. Applies Codex compatibility rules from docs/dev-docs/codex-compat.md.
 ---
 
 # sync-docs

@@ -110,7 +110,26 @@ Agent(
 ### 1. 검사 대상 식별
 
 - 인자로 명시 (예: `review-code src/agents/codex.py`)
-- 인자 없으면 `git diff HEAD~1`로 최근 변경 파일
+- 인자 없으면 최근 변경 목록을 수집한 뒤 코드성 파일을 기본 검사 대상으로 삼는다.
+
+```bash
+git diff --name-only HEAD~1 HEAD
+git diff --name-only --cached
+git diff --name-only
+git ls-files --others --exclude-standard
+```
+
+기본 포함 대상:
+- `*.py`
+- `pyproject.toml`, `setup.sh`, repo-root executable wrapper처럼 Python 실행/패키징/CLI 동작에 직접 영향 주는 파일
+- 변경된 `.md` 중 코드 계약을 바꾸는 문서: `docs/runtime-docs/protocol.md`, `docs/dev-docs/code-conventions.md`, `docs/dev-docs/Checklists/review-code-checklist.md`, `.claude/skills/review-code/SKILL.md`
+
+기본 제외 대상:
+- 일반 narrative `.md`
+- `plan/*/*.md` 계획 산출물
+- 로그/녹음/생성 산출물
+
+untracked 신규 `*.py` 파일은 반드시 검사 대상에 포함한다. 새 코드 파일은 `git diff`에 나타나지 않으므로 `git ls-files --others --exclude-standard` 누락 시 review-code 사각지대가 된다.
 
 ### 2. 도메인별 순회
 
