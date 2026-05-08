@@ -31,7 +31,42 @@ pip install --quiet --upgrade pip
 pip install --quiet -e .
 echo "✓ pip install -e . 완료"
 
-# 4. 외부 CLI 점검 (안내만, 실패해도 진행 — mock 모드로 동작 가능)
+# 4. PATH 등록 — ~/.local/bin이 PATH에 있으면 symlink 자동 생성 (어디서나 `dialectic` 호출).
+#    venv activate 없이도 동작 (shim이 python3 -m src.cli 호출, 외부 의존성 0이라 system python OK).
+#    안전: 기존 동명 파일/symlink가 있으면 본 repo 외부 자산 침해 차단 — 다른 target이거나
+#    실파일이면 경고만 출력하고 skip (사용자 자산 우선).
+LOCAL_BIN="$HOME/.local/bin"
+REPO_DIR="$(pwd)"
+link_if_safe() {
+  local name="$1"
+  local target="$REPO_DIR/$name"
+  local link="$LOCAL_BIN/$name"
+  if [ -L "$link" ]; then
+    local existing
+    existing="$(readlink "$link")"
+    if [ "$existing" = "$target" ]; then
+      return 0  # 이미 본 repo 가리킴 — no-op
+    fi
+    echo "⚠ $link → $existing 존재 (다른 target). skip — 수동 확인 권장"
+    return 0
+  fi
+  if [ -e "$link" ]; then
+    echo "⚠ $link 동명 실파일 존재. skip — 수동 확인 권장"
+    return 0
+  fi
+  ln -s "$target" "$link"
+  echo "✓ symlink: $link → $target"
+}
+
+if [[ ":$PATH:" == *":$LOCAL_BIN:"* ]] && [ -d "$LOCAL_BIN" ]; then
+  link_if_safe dialectic
+  link_if_safe dialectic-skill
+else
+  echo "ℹ ~/.local/bin이 PATH에 없음 — 어디서나 호출하려면 PATH 추가 또는 alias 설정 권장"
+  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\"  또는  alias dialectic='$REPO_DIR/dialectic'"
+fi
+
+# 5. 외부 CLI 점검 (안내만, 실패해도 진행 — mock 모드로 동작 가능)
 echo ""
 echo "─── 외부 CLI 점검 (선택) ───"
 if command -v codex >/dev/null 2>&1; then
@@ -48,10 +83,10 @@ fi
 echo ""
 echo "✓ 설치 완료. 다음을 시도해보세요:"
 echo ""
-echo "    source .venv/bin/activate"
+echo "    dialectic                                          # default 메뉴 진입 (어디서나, activate 불필요)"
 echo "    dialectic run --task @tasks/wave_difficulty/task.md --mock tasks/wave_difficulty"
 echo "    dialectic-skill sync-docs"
-echo "    ./dialectic-skill sync-docs    # editable install 전에도 사용 가능"
 echo ""
 echo "  (실 호출은 \`claude login\` + \`codex login\` 1회 후 --mock 생략)"
+echo "  (~/.local/bin symlink 미설정 시: cd 후 \`./dialectic\` 또는 \`source .venv/bin/activate\`)"
 echo ""

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+# python3 os.path.realpath로 symlink target 해소 — GNU `readlink -f` 의존 회피
+# (BSD/macOS 호환). `~/.local/bin/dialectic-skill` symlink 호출도 실제 repo 경로에서
+# `python3 -m src.dev_skill_cli` 실행 (src 패키지 발견 보장).
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+cd "$(dirname "$SCRIPT")"
 exec python3 -m src.dev_skill_cli "$@"

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# repo-root wrapper — `source .venv/bin/activate` 없이도 어디서나 호출 가능.
+# `dialectic-skill`과 동일 패턴 (cd repo + python3 -m src.cli). 외부 의존성 0,
+# 표준 라이브러리만 사용하는 cli.py 정합 (code-conventions §2).
+# python3 os.path.realpath로 symlink target 해소 — GNU `readlink -f` 의존 회피
+# (BSD/macOS 호환). `~/.local/bin/dialectic` symlink 호출도 실제 repo 경로에서
+# `python3 -m src.cli` 실행 (src 패키지 발견 보장).
+set -euo pipefail
+
+SCRIPT="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+cd "$(dirname "$SCRIPT")"
+exec python3 -m src.cli "$@"
