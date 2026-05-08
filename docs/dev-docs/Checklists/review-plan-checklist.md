@@ -4,20 +4,37 @@
 
 ---
 
-## 1. 폴더 구조 + 00-plan.md 형식 (`docs/dev-docs/Plans/plan-writing-guide.md` 준수)
+## 1. 폴더 구조 + 00-summary.md / 01-plan.md 형식 (`docs/dev-docs/Plans/plan-writing-guide.md` 준수)
 
-### 1.1 폴더 구조 (인덱스 + Phase 분리)
+### 1.1 폴더 구조 (digest + 인덱스 + Phase 분리)
 
 | 항목 | 검사 | 위반 시 |
 |---|---|---|
-| `plan/<work-id>/00-plan.md` 존재 | 폴더당 1개 | P0 |
+| `plan/<work-id>/00-summary.md` 존재 | 폴더당 1개 (digest) | P0 |
+| `plan/<work-id>/01-plan.md` 존재 | 폴더당 1개 | P0 |
 | `phase-<id>-<slug>.md` 존재 | 1개 이상 (한 덩어리 plan 금지) | P0 (0개) |
 | 명명 규칙 일관 | mermaid Phase ID(`A`/`B1`) ↔ 파일명(`phase-a-...`/`phase-b1-...`) 대응 | P1 |
-| 00-plan.md §3.2 경로 표 | 모든 phase 파일을 정확한 상대 경로로 가리킴 | P0 (누락) / P1 (경로 오타) |
-| phase 파일 §0 ↔ 00-plan.md 역참조 | 각 phase의 `소속 plan` 경로가 00-plan.md 가리킴 | P0 (단절) |
-| 의존·병렬 그룹 일관 | phase §0의 의존·병렬 그룹 ↔ 00-plan.md §3.1 mermaid 일치 | P0 (모순) / P1 (느슨) |
+| 01-plan.md §3.2 경로 표 | 모든 phase 파일을 정확한 상대 경로로 가리킴 | P0 (누락) / P1 (경로 오타) |
+| phase 파일 §0 ↔ 01-plan.md 역참조 | 각 phase의 `소속 plan` 경로가 01-plan.md 가리킴 | P0 (단절) |
+| 의존·병렬 그룹 일관 | phase §0의 의존·병렬 그룹 ↔ 01-plan.md §3.1 mermaid 일치 | P0 (모순) / P1 (느슨) |
 
-### 1.2 00-plan.md 본문 (인덱스)
+### 1.2 00-summary.md 본문 (digest)
+
+| 항목 | 검사 | 위반 시 |
+|---|---|---|
+| 분량 | 30~80줄 권장 (10줄 이하면 부실, 150줄 초과면 본문화) | P1 |
+| §의도 | 2~3줄, 무엇을 만들/바꾸는가 | P1 (부재) |
+| §배경/동기 | 왜 지금 필요한가, ADR/Q번호 인용 권고 | P2 |
+| §Phase 흐름 | 텍스트 1줄 또는 mermaid. 01-plan.md §3.1과 위상 일치 | P1 (모순) |
+| §핵심 의사결정 | 1줄 단위 3~5개. 01-plan.md AS-IS/TO-BE의 비자명한 결정 | P2 (부재) |
+| §핵심 위험 | 1줄 + 차단/완화. 01-plan.md §5와 일치 | P1 (모순) |
+| §DoD 요약 | 01-plan.md §6 핵심 3~6개 발췌, 본문과 충돌 없음 | P1 (모순) |
+| 본문 링크 | `→ 상세: [01-plan.md](01-plan.md)` 또는 동등 | P2 |
+| 동기화 | 본문(01-plan.md, phase-*.md) 갱신 시 summary 동기화? | P1 (어긋남) |
+
+summary는 본문의 **발췌**이므로 본문에 있는 항목이 summary에 없는 건 OK. 하지만 **summary가 본문과 어긋나면** P1 (digest 목적 역행).
+
+### 1.3 01-plan.md 본문 (인덱스)
 
 | 항목 | 검사 | 위반 시 |
 |---|---|---|
@@ -30,19 +47,19 @@
 | 완료 기준 | `## 6. 완료 기준`, 측정 가능 체크박스 + 책임 Phase 명시 | P0 (모호) / P1 (책임 Phase 부재) |
 | 참조 .md | `## 7. 참조`, 검증·실행 시 참조할 문서 | P2 |
 
-### 1.3 phase-<id>-<slug>.md 본문 (각 Phase)
+### 1.4 phase-<id>-<slug>.md 본문 (각 Phase)
 
 | 항목 | 검사 | 위반 시 |
 |---|---|---|
-| §0 메타 | Phase ID·00-plan.md 경로·의존·병렬 그룹·LOC | P0 |
+| §0 메타 | Phase ID·01-plan.md 경로·의존·병렬 그룹·LOC | P0 |
 | §1 목표 | 한 문장 (Phase 끝나면 무엇이 되는지) | P1 (모호) |
 | §2 입력 | 의존 산출물·참조 .md(줄 번호 권고)·사전 검증 사실 | P0 (의존 누락) / P2 (줄 번호 부재) |
 | §3 출력 | 생성·변경 파일 + 시그니처 수준 명세 | P0 (시그니처 부재) |
-| §3 코드 블록 라벨 | paste 의도인 정의(상수·dataclass)는 `# paste` 라벨 명시? | P1 (라벨 부재) |
+| §3 코드 블록 라벨 | paste 의도인 정의(상수·dataclass)는 `# paste` 라벨 명시? (자세히는 `plan-writing-guide.md` §4.1) | P1 (라벨 부재) |
 | §4 작업 단위 | 체크박스, execute-plan이 그대로 실행 가능한가 | P0 (모호) / P1 (단위 너무 큼) |
 | §5 검증 | 명령어 형태 (pytest, python -c, grep 등) | P1 |
 | §6 엣지케이스 | Phase 한정 1개 이상 | P1 (0개) / P2 (표면적) |
-| 자급자족 | phase 파일만 보고 작업 가능한가 (00-plan.md 다시 안 읽어도 됨) | P1 |
+| 자급자족 | phase 파일만 보고 작업 가능한가 (01-plan.md 다시 안 읽어도 됨) | P1 |
 
 ## 2. 본 도구 specific (Dialectic-CLI 도메인)
 

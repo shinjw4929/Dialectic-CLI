@@ -59,7 +59,7 @@ flowchart TD
 
 DAG 무결성: `parent_id` 모두 직전 메시지 `msg_id`. task만 `parent_id=null`.
 
-## 4. 종료 조건 (DoD `00-plan §6` + outline/04 §4.5.1)
+## 4. 종료 조건 (DoD `01-plan §6` + outline/04 §4.5.1)
 
 ```
 +----------------------------------------------------------+

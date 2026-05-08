@@ -1,6 +1,6 @@
 ---
 name: create-plan
-description: 작업 의도를 받아 docs/dev-docs/Plans/plan-writing-guide.md 형식의 plan을 생성. 00-plan.md(인덱스) + Phase별 .md(본문) 분리 작성.
+description: 작업 의도를 받아 docs/dev-docs/Plans/plan-writing-guide.md 형식의 plan을 생성. 00-summary.md(digest) + 01-plan.md(인덱스) + Phase별 .md(본문) 분리 작성.
 tier: 1
 ---
 
@@ -8,7 +8,7 @@ tier: 1
 
 ## 책임
 
-자연어 작업 의도(예: "Codex 어댑터 작성")를 받아 `plan/<work-id>/` 폴더 단위의 plan으로 변환. **00-plan.md(인덱스)** + **phase-<id>-<slug>.md(Phase 본문)** 분리 산출.
+자연어 작업 의도(예: "Codex 어댑터 작성")를 받아 `plan/<work-id>/` 폴더 단위의 plan으로 변환. **00-summary.md(digest)** + **01-plan.md(인덱스)** + **phase-<id>-<slug>.md(Phase 본문)** 분리 산출.
 
 ## 호출 시점
 
@@ -22,13 +22,16 @@ tier: 1
 
 ```
 plan/<work-id>/
-├── 00-plan.md                    # 메타 + AS-IS/TO-BE + Phase 인덱스 + DoD
+├── 00-summary.md                 # 30~80줄 digest (의도·배경·Phase 흐름·핵심 결정/위험·DoD 요약)
+├── 01-plan.md                    # 인덱스: 메타 + AS-IS/TO-BE + Phase 인덱스 + DoD (전체)
 ├── phase-a-<slug>.md          # Phase A 본문 (목표·입력·출력·작업 단위·검증·엣지케이스)
 ├── phase-b-<slug>.md          # Phase B (병렬이면 phase-b1·phase-b2)
 └── phase-c-<slug>.md          # ...
 ```
 
-**00-plan.md는 인덱스만**. Phase 본문은 별도 파일. 00-plan.md에서 §3.2 표로 phase 파일 경로 명시.
+- **00-summary.md = digest**: 01-plan.md의 요약본. 폴더 첫 진입 시 5분 안에 plan 그림 파악용. 본문 정보의 발췌 — 정본은 01-plan.md.
+- **01-plan.md = 인덱스 본문**: 전체 메타·AS-IS/TO-BE·Phase 인덱스(§3.2 경로 표)·DoD. Phase 본문은 별도 파일.
+- **phase-*.md = Phase 본문**: 자급자족.
 
 ## 절차
 
@@ -62,25 +65,39 @@ plan/<work-id>/
 - **직렬**: 한 Phase 산출이 다음 Phase 입력.
 - **병렬**: Phase 간 의존성 0 (별도 subagent로 동시 실행 가능). 같은 알파벳 + 숫자 명명 (`phase-b1-codex.md`, `phase-b2-claude.md`).
 
-mermaid 의존성 그래프 작성 — 00-plan.md §3.1에 들어감.
+mermaid 의존성 그래프 작성 — 01-plan.md §3.1에 들어감.
 
 `execute-plan`이 본 그래프를 읽고 자동 분기. **최소 2 Phase**로 분할 (1 Phase면 plan 분리 가치 X).
 
 ### 5. 엣지케이스 / 비기능 요구 정리
 
-- **plan 횡단 위험**: 00-plan.md §5에.
+- **plan 횡단 위험**: 01-plan.md §5에.
 - **Phase 한정 위험**: 해당 phase 파일 §6에.
 - 의도된 범위 밖 영향, OS·환경 차이, 보안, 성능, 외부 의존성 추가 여부.
 
 ### 6. 완료 기준 (Definition of Done)
 
-체크박스 형식, 측정 가능 항목만. 각 항목 옆에 책임 Phase 명시 — `- [ ] (Phase A) ...`. 00-plan.md §6에.
+체크박스 형식, 측정 가능 항목만. 각 항목 옆에 책임 Phase 명시 — `- [ ] (Phase A) ...`. 01-plan.md §6에.
 
 ### 7. 파일 작성
 
-`plan-writing-guide.md` §2(00-plan.md 형식) + §3(phase 파일 형식) 준수.
+`plan-writing-guide.md` §2(00-summary.md 형식) + §3(01-plan.md 형식) + §4(phase 파일 형식) 준수.
 
-#### 7.1 00-plan.md (인덱스)
+#### 7.0 00-summary.md (digest, 30~80줄)
+
+01-plan.md 작성 후 그 본문에서 발췌 — **본문이 정본, summary는 요약본**.
+
+- §의도 (2~3줄): 무엇을 만들/바꾸는가
+- §배경/동기 (1~3줄): 왜 지금 필요한가. ADR/Q번호·이슈
+- §Phase 흐름: 한 줄 텍스트(`A → B1·B2 → C`) 또는 mermaid 간략 다이어그램
+- §핵심 의사결정: 1줄짜리 3~5개. 근거 ADR/Q번호 인라인
+- §핵심 위험: 1줄 + 차단/완화 한 마디. 2~4개
+- §DoD 요약: 01-plan.md §6 체크박스 중 핵심 3~6개만
+- 마지막에 `→ 상세: [01-plan.md](01-plan.md)` 링크
+
+본문 변경 시 summary도 동기화 (review-plan이 비동기를 P1 결함으로 잡음).
+
+#### 7.1 01-plan.md (인덱스)
 
 - §0 메타 (work-id, 의도, ADR/Q, 영향 범위, LOC 추정)
 - §1 AS-IS (전체)
@@ -93,13 +110,13 @@ mermaid 의존성 그래프 작성 — 00-plan.md §3.1에 들어감.
 
 #### 7.2 phase-<id>-<slug>.md (각 Phase)
 
-각 Phase 파일은 **자급자족** — 본 파일만 보고도 작업 가능해야 함. 00-plan.md 다시 안 읽도록 §0에 00-plan.md 경로·의존 Phase 명시.
+각 Phase 파일은 **자급자족** — 본 파일만 보고도 작업 가능해야 함. 01-plan.md 다시 안 읽도록 §0에 01-plan.md 경로·의존 Phase 명시.
 
-- §0 메타 (Phase ID, 00-plan.md 경로, 의존 Phase, 병렬 그룹, LOC)
+- §0 메타 (Phase ID, 01-plan.md 경로, 의존 Phase, 병렬 그룹, LOC)
 - §1 목표 (Phase 끝나면 무엇이 되는지)
 - §2 입력 (의존 산출물·참조 .md·사전 검증 사실)
 - §3 출력 (생성·변경 파일 + 핵심 시그니처)
-  - 코드 블록 의도가 "그대로 paste" 인 정의(상수·dataclass·MODE_ROLES 등)는 펜스 직후 `# paste` 명시. 시그니처+docstring 명세는 라벨 생략(default=spec) 또는 `# spec` 명시. 자세히는 `plan-writing-guide.md` §3.1.
+  - 코드 블록 의도가 "그대로 paste" 인 정의(상수·dataclass·MODE_ROLES 등)는 펜스 직후 `# paste` 명시. 시그니처+docstring 명세는 라벨 생략(default=spec) 또는 `# spec` 명시. 자세히는 `plan-writing-guide.md` §4.1.
 - §4 작업 단위 (체크박스, execute-plan이 그대로 실행 가능)
 - §5 검증 (Phase 완료 확인 명령어)
 - §6 엣지케이스 / 위험 (Phase 한정)
@@ -107,21 +124,23 @@ mermaid 의존성 그래프 작성 — 00-plan.md §3.1에 들어감.
 ### 8. 사용자 보고
 
 작성 완료 후:
-- 폴더 경로 + 파일 목록(00-plan.md + phase-*.md 개수).
-- 핵심 Phase·완료 기준 요약 1줄씩.
+- 폴더 경로 + 파일 목록(00-summary.md + 01-plan.md + phase-*.md 개수).
+- 핵심 Phase·완료 기준 요약 1줄씩 (summary §의도 + DoD 요약 발췌로 대체 가능).
 - "review-plan으로 검토할까요?" 제안 (자동 chaining의 다음 단계).
 
 ## 안티패턴 회피
 
 - **TO-BE 모호함**: "어댑터를 잘 작성한다" → "AgentRunner Protocol 준수, codex exec 호출, raw stream 캡처, AgentResponse 반환".
 - **Phase 0~1개**: 한 덩어리는 execute-plan이 병렬화 못 함 → 최소 2 Phase로 분할.
-- **00-plan.md만 있고 phase 파일 없음**: 본 가이드 §1.1 위반. execute-plan 컨텍스트 비대 → 반드시 phase 파일 분리.
-- **00-plan.md §3.2 경로 표 누락**: 인덱스 단절 → 사용자·도구 모두 phase 파일 못 찾음.
-- **phase 파일이 00-plan.md를 인용 안 함**: phase §0 메타에 00-plan.md 경로 필수.
+- **01-plan.md만 있고 phase 파일 없음**: 본 가이드 §1.1 위반. execute-plan 컨텍스트 비대 → 반드시 phase 파일 분리.
+- **01-plan.md §3.2 경로 표 누락**: 인덱스 단절 → 사용자·도구 모두 phase 파일 못 찾음.
+- **phase 파일이 01-plan.md를 인용 안 함**: phase §0 메타에 01-plan.md 경로 필수.
 - **AS-IS 누락 또는 줄 번호 부재**: TO-BE만 있으면 변경 분량 모름. 인용은 파일·줄 번호까지.
 - **work-id 충돌**: 기존 `plan/` 폴더 검사 후 새 ID 부여.
-- **절대 날짜·요일 라벨**: plan 본문에 `2026-05-08`, `5/9 토`, `목요일` 같은 표기 금지. 외부 calendar와 어긋나면 plan 신뢰성 균열. Day index + 가용 시간 + 마일스톤 추상 표현만. 자세히는 `plan-writing-guide.md` §5.
+- **절대 날짜·요일 라벨**: plan 본문에 `2026-05-08`, `5/9 토`, `목요일` 같은 표기 금지. 외부 calendar와 어긋나면 plan 신뢰성 균열. Day index + 가용 시간 + 마일스톤 추상 표현만. 자세히는 `plan-writing-guide.md` §6.
 - **시간 추정 (`~30분`, `~1.5h`)**: 사용자 가용 변동성으로 ETA 무의미. LOC·단계 수로 정성 표현.
+- **00-summary.md 부재**: 폴더 첫 진입 시 plan 그림 파악 비용 큼. 30~80줄 digest 필수.
+- **summary가 본문과 어긋남**: digest의 목적 역행 (오해 유발). 01-plan.md 갱신 시 summary 1줄 단위로 동기화.
 
 ## 본 도구 specific 도메인 매핑
 
@@ -133,7 +152,7 @@ create-plan이 다룰 일반적 작업 부위:
 - **task·녹음**: `tasks/<task>/{task.md, recordings/}`.
 - **하네스 .md**: `CLAUDE.md`, `AGENTS.md`, `docs/*` (Documentation-Checklist 매핑 필수).
 
-이 매핑이 00-plan.md AS-IS/TO-BE + phase 분할 시 자연스러운 frame.
+이 매핑이 01-plan.md AS-IS/TO-BE + phase 분할 시 자연스러운 frame.
 
 ## 본 스킬 자체의 변경
 

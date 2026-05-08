@@ -41,7 +41,7 @@ flowchart LR
 
 | 스킬 | 책임 | 입력 | 산출물 |
 |---|---|---|---|
-| [create-plan](create-plan/SKILL.md) | 작업 → 00-plan.md(인덱스) + phase-`<id>`-`<slug>`.md(본문) 분리 작성 | 작업 의도 (자연어) | `plan/<work-id>/{00-plan.md, phase-*.md}` |
+| [create-plan](create-plan/SKILL.md) | 작업 → 00-summary.md(digest) + 01-plan.md(인덱스) + phase-`<id>`-`<slug>`.md(본문) 분리 작성 | 작업 의도 (자연어) | `plan/<work-id>/{00-summary.md, 01-plan.md, phase-*.md}` |
 | [execute-plan](execute-plan/SKILL.md) | phase 파일 단위 subagent 분기 실행 (병렬·직렬 의존성 그래프 따름) | `plan/<work-id>/` 폴더 | 코드 변경 + `plan/<work-id>/execution-log.md` |
 
 `create-plan` → 사용자 검토 → (`review-plan` 거쳐) → `execute-plan` 흐름.
