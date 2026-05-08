@@ -32,6 +32,11 @@ class Meta:
     is_mock: bool
     workdir: str
     convergence_streak: int | None = None  # reviewer [CONVERGED] 단독 마지막 줄 출력 시 1, 그 외 None
+    # === ADR-10 patch_apply 메커니즘 (protocol.md §2 line 85-91) ===
+    patches: list[dict[str, str]] | None = None
+    apply_status: str | None = None
+    apply_error: str | None = None
+    files_changed: list[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

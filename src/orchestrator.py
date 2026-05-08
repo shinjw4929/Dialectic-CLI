@@ -27,6 +27,7 @@ from .agents.base import ERROR_CONTENT_TRUNCATE_CHARS, AgentAuthError, AgentRunn
 from .agents.claude import ClaudeRunner
 from .agents.codex import CodexRunner
 from .bus import Bus
+from .patch_apply import apply_patches, extract_patches
 from .schema import Message, Meta
 
 MODE_ROLES = {
@@ -44,6 +45,12 @@ ROLE_FILE = {
 
 # turn 내 최후 위치 명시 (driver=1, reviewer=2, user=3 다음 sentinel) — magic number 회피.
 META_SEQ_SENTINEL = 99
+
+# patch_applied 메시지의 seq_in_turn — proposal=1, reviewer=2 사이가 시간 순이지만
+# seq=2는 reviewer와 충돌이라 META_SEQ_SENTINEL 직전(=98)에 배치. 직렬화 순서는
+# proposal(1) → reviewer(2) → patch_applied(98)로 reviewer 뒤에 노출 (의도된 비대칭,
+# 01-plan §5.6). 별도 상수로 의미 단위 명확.
+META_PATCH_APPLIED_SEQ = 98
 
 # subprocess 호출 timeout (code-conventions §3 — 명시 필수, 무한대 차단).
 DEFAULT_TIMEOUT_S = 300
@@ -243,6 +250,51 @@ def _meta_msg(
     )
 
 
+def _patch_applied_msg(
+    turn_id: int,
+    workdir: Path,
+    mode: str,
+    content: str,
+    *,
+    parent_id: str,
+    apply_status: str,
+    apply_error: str | None,
+    files_changed: list[str],
+) -> Message:
+    """R2.7 patch_applied — from=system, slot=None, seq=98 (proposal=1, reviewer=2, meta=99 사이).
+
+    content는 호출자(run_turn)가 만든 요약 문자열 — `_serialize_history`의 system 분기(:99-100)
+    `SYSTEM (patch_applied): {content}` 형태로 driver 다음 턴 R1 prompt에 자연 피드백.
+    호출자가 prefix를 `apply_status=...`로 명시하여 driver의 reviewer critique 오인 risk 차단
+    (01-plan §5.6 (2) mitigation).
+
+    meta는 SENTINEL_META(workdir) + dataclasses.replace로 apply_status/apply_error/files_changed
+    3 필드 채움. patches는 proposal 측 책임 → None 유지.
+    """
+    base_meta = SENTINEL_META(workdir)
+    meta = dataclasses.replace(
+        base_meta,
+        apply_status=apply_status,
+        apply_error=apply_error,
+        files_changed=files_changed,
+    )
+    return Message(
+        ts=_now_ts(),
+        msg_id=str(uuid4()),
+        parent_id=parent_id,
+        turn_id=turn_id,
+        seq_in_turn=META_PATCH_APPLIED_SEQ,
+        from_="system",
+        to="broadcast",
+        slot=None,
+        mode=mode,
+        kind="patch_applied",
+        content=content,
+        directive=None,
+        meta=meta,
+    )
+
+
 def _resolve_runner(name: str) -> AgentRunner:
     """codex/claude 어댑터 인스턴스 반환. mock은 Day 3+. invalid name은 친절 ValueError."""
     runners: dict[str, AgentRunner] = {"codex": CodexRunner(), "claude": ClaudeRunner()}
@@ -309,11 +361,29 @@ def run_turn(
         ))
         return
 
+    # R2.6/R2.7 — protocol.md §4 line 232-235. patch 0개면 분기 skip (노이즈 차단).
+    patches = extract_patches(resp1.text)
+    proposal_meta = dataclasses.replace(resp1.meta, patches=patches or None)
     proposal = _msg(
         turn_id, 1, driver_role, "driver", mode, "proposal",
-        resp1.text, parent_id=last_msg_id, meta=resp1.meta,
+        resp1.text, parent_id=last_msg_id, meta=proposal_meta,
     )
     bus.append(proposal)
+
+    if patches:
+        status, error, files_changed = apply_patches(patches, workdir=workdir)
+        summary = (
+            f"apply_status=ok, files_changed={files_changed}"
+            if status == "ok"
+            else f"apply_status=failed, apply_error={error}"
+        )
+        bus.append(_patch_applied_msg(
+            turn_id, workdir, mode, summary,
+            parent_id=proposal.msg_id,
+            apply_status=status,
+            apply_error=error,
+            files_changed=files_changed,
+        ))
 
     # ---- reviewer ----
     reviewer_role = roles["reviewer"]
