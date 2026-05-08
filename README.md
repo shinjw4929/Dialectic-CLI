@@ -87,6 +87,7 @@ dialectic doctor           # claude/codex --version + auth status (비용 0)
 ```bash
 source .venv/bin/activate
 dialectic doctor                                           # 환경 점검
+dialectic                                                  # default 메뉴 진입 — task 한 줄 입력 → run 분기 (Day 2 한정: run + default 매핑 codex/claude + max-turns=1)
 dialectic run --task "Reply with single digit: 1+1=?" \
     --workdir /tmp/dialectic-demo \
     --driver codex --reviewer claude --max-turns 1

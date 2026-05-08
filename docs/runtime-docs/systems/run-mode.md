@@ -4,6 +4,11 @@
 
 ## 1. 명령 표면
 
+진입로는 두 가지:
+
+1. **default 메뉴 진입** — `dialectic` 단독 실행 → `_interactive_menu` 호출 → 환경 점검 1줄 요약 + task 한 줄 입력 → run 분기 (default 매핑: driver=codex, reviewer=claude, max-turns=1, interactive=end-only). 기획자 페르소나(outline/03-ux §3.1)의 default 진입로. EOFError/KeyboardInterrupt 안전 종료(exit 0). Day 2 minimum cut — 모드/매핑 선택은 후속 plan.
+2. **CLI 인자 명시** — 자동화/CI용. 하기 인자 표 그대로:
+
 ```bash
 dialectic run --task <text> [--workdir <path>] [--driver {codex,claude}]
                             [--reviewer {codex,claude}] [--max-turns <int>]

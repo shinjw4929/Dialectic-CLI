@@ -62,9 +62,49 @@ def main() -> int:
 
     args = parser.parse_args()
     if not args.cmd:
-        parser.print_help()
-        return 0
+        return _interactive_menu()
     return args.func(args)
+
+
+def _interactive_menu() -> int:
+    """outline/03-ux §3.2 단계 1·3 minimum cut.
+
+    Day 2 한정: run 모드 + default 매핑(driver=codex, reviewer=claude) +
+    max-turns=1 + --interactive end-only 고정.
+    단계 2(모드 선택) / 4(매핑·workdir) / 5(턴 진행 화면)는 후속 plan 분리.
+
+    EOFError / KeyboardInterrupt → exit 0 (안전 종료).
+
+    parser 인자 미수령 — Namespace 직접 구성으로 argparse 분기 우회 (cli.py
+    args.func(args) 패턴과 비대칭은 minimum cut 한정, 후속 plan에서 정합화 검토).
+    """
+    print("Dialectic-CLI · Day 2 minimum cut: run 모드 + default 매핑 (codex/claude).")
+    print("다른 옵션은 CLI 인자로 직접 지정.\n")
+
+    # 환경 점검 1줄 요약 (env_check.check_env() 결과 → 활성 N/M 형태)
+    res = check_env()
+    active = sum(1 for tool in res.values() for r in tool.values() if r["ok"])
+    total = sum(1 for tool in res.values() for _ in tool.values())
+    print(f"환경 점검: 활성 {active}/{total}\n")
+
+    try:
+        task = input("task (한 줄): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()  # newline 정리
+        return 0
+    if not task:
+        print("task 비어 있음 — 종료.")
+        return 0
+
+    # default 매핑으로 run_session 직접 호출 (parser.parse_args 재호출 회피 — sys.exit 부작용 차단).
+    # argparse Namespace 직접 구성: run subparser default 값 + task input 합성.
+    args = argparse.Namespace(
+        cmd="run", task=task, workdir=None,
+        driver="codex", reviewer="claude",
+        max_turns=1, mode="run",
+        convergence_streak=2, interactive="end-only",
+    )
+    return orchestrator.run_session(args)
 
 
 def _print_env_check() -> int:

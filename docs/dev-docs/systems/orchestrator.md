@@ -147,10 +147,15 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 |---|---|
 | `run` | `--task`(필수), `--workdir`, `--driver`, `--reviewer`, `--max-turns`, `--mode`, `--convergence-streak`, `--interactive` |
 | `doctor` | (인자 없음) |
+| (default) | 인자 0 → `_interactive_menu()` 진입 |
 
 `--mode choices=["run"]` (Day 2 한정 — Day 3+ plan/implement/compare 추가 시 choices 확장. `MODE_ROLES` dict는 이미 plan/implement 키 보존이라 한 줄 변경).
 
 `--interactive choices=["end-only"]` (Day 2 한정 — Day 3+ full/critical 추가 + 6지선다 분기 + Enter=iterate default).
+
+### default 메뉴 진입 (`_interactive_menu`)
+
+기획자 페르소나(outline/03-ux §3.1)의 default 진입로. `dialectic` 단독 실행 시 `_interactive_menu` 호출. Day 2 minimum cut: run 모드 + default 매핑(codex/claude) + max-turns=1 + `--interactive end-only` 고정 + task 한 줄 입력 후 즉시 run 분기. EOFError/KeyboardInterrupt 안전 종료(exit 0). `parser.parse_args` 재호출 회피 — `argparse.Namespace` 직접 구성으로 `sys.exit` 부작용 차단 (cli `args.func(args)` 패턴과 비대칭은 minimum cut 한정, 후속 plan에서 정합화 검토). 모드 선택·매핑 선택·턴 진행 화면(outline/03-ux §3.2 단계 2/4/5)은 후속 plan 분리.
 
 ### entry-point
 
