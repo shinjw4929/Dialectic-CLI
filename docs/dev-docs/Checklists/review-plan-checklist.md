@@ -58,6 +58,8 @@
 | Documentation-Checklist 매핑 | 새 변경 유형이면 §1에 매핑 추가 명시? | P1 |
 | 두 층 분리 (A/B) | plan이 dev-time 자산인지 runtime 자산인지 명확? 두 층 모두 영향이면 분리 plan 권고 | P1 |
 | P-id 인용 | plan이 §4.4 패턴(P-CWD/P-JSONL 등) 영역 변경 시 plan 본문에 P-id 명시? | P2 (인용 부재) |
+| 절대 날짜·요일 라벨 | plan 본문에 `2026-05-08`, `5/9 토`, `목요일` 같은 표기? 외부 calendar mismatch risk + plan 신뢰도 균열 — Day index + 가용 시간 + 마일스톤 추상 표현으로 정정 권고 | P1 |
+| 시간 추정 (`~30분`, `~1.5h`) | plan 본문에 시간 ETA? 사용자 가용 변동성으로 무의미 — LOC·단계 수로 정성 대체 권고 | P2 |
 
 ## 3. 4계층 매핑 일관성
 

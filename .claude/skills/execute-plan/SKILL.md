@@ -12,9 +12,8 @@ tier: 1
 
 ## 호출 시점
 
-- `review-plan`이 P0 결함 0 보고 후
-- 사용자가 plan 승인 후 명시 호출
-- 자동 chaining: create-plan → review-plan (P0=0 통과) → execute-plan
+- **사용자 명시 승인 후만**. review-plan P0=0 통과해도 자동 호출 X. 사용자가 직접 "execute-plan 실행" 또는 "옵션 N (execute-plan)" 같이 명시한 후 호출.
+- `review-plan`이 P0 결함 0 보고 후 사용자에게 다음 단계 옵션 ask (재검토 / 직접 Edit / execute-plan / 동결 등). execute-plan은 destructive(실 파일 변경)이라 자동 chaining 금지.
 
 ## 입력 구조 가정
 
@@ -79,11 +78,11 @@ phase 파일 §5(검증) 명령어 그대로 실행:
 # Execution Log · 001-run-mode-core
 
 ## Phase A (foundation) — 직렬
-- 시작: 2026-05-08T20:00:00
+- 시작: <ISO timestamp 자동 기록>
 - 입력 phase 파일: phase-a-foundation.md
 - 산출물: src/schema.py (+82), src/bus.py (+58), src/agents/base.py (+34)
 - 검증: pytest tests/test_schema.py — 3/3 pass; import 성공
-- 종료: 2026-05-08T20:18:00
+- 종료: <ISO timestamp 자동 기록>
 
 ## Phase B1 (codex) — 병렬 with B2
 - 입력 phase 파일: phase-b1-codex.md
@@ -131,7 +130,7 @@ mv plan/<work-id> plan/completed/<work-id>
 ## execute-plan 완료
 
 대상: plan/001-run-mode-core/ (4 phase 파일)
-실행 시간: 2026-05-08T20:00 ~ 22:42
+실행 시간: <ISO timestamp 자동 기록 — 시작 ~ 종료>
 
 ### 변경
 - src/schema.py (+82), src/bus.py (+58), src/agents/base.py (+34)

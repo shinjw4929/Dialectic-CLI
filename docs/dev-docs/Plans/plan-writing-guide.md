@@ -215,6 +215,8 @@ def _msg(turn_id: int, ...) -> Message:
 | 엣지케이스 0 | 발견 안 된 위험이 곧 미래 결함 | 00-plan.md §5 횡단 + phase 파일 §6 한정 양쪽에 |
 | Phase 파일이 00-plan.md 인용 없이 자급자족 X | review-plan이 phase 단위 검토 불가 | phase 파일 §0 메타에 00-plan.md 경로 + §2 입력에 참조 .md 명시 |
 | paste 의도인데 라벨 없음 | execute-plan이 spec(자유 해석)으로 해석 → MODE_ROLES 같은 정의가 변형 위험 | 정의는 `# paste` 명시 |
+| **절대 날짜·요일 라벨** (`2026-05-08`, `5/9 토`, `5/8 목요일`) | 외부 calendar(요일·휴일)와 어긋나면 plan 신뢰성 균열. 일정 변동성도 큼 | Day index (`Day 1/2/3/4`) + 가용 시간 (`~4.5h`) + 마일스톤 (`마감일`) 추상 표현. mermaid gantt가 dateFormat 의존이면 gantt 폐기 또는 추상 day 기반 |
+| **시간 추정 (`~30분`, `~1.5h`)** | 사용자 가용·체력 변동성으로 ETA 무의미 | LOC·단계 수·도메인 swap 정도로 정성 표현 |
 
 ---
 
