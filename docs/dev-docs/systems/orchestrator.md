@@ -9,6 +9,7 @@
 | `MODE_ROLES` | `{"run": {driver:"implementer", reviewer:"spec-reviewer"}, "plan": {driver:"planner", reviewer:"plan-reviewer"}, "implement": {driver:"implementer", reviewer:"spec-reviewer"}}` | `protocol.md §3` 1:1 |
 | `ROLE_FILE` | `{"implementer": Path(...).parent.parent / "docs/runtime-docs/roles/implementer.md", ...}` 4 path | `build_prompt` §1 ROLE 입력 |
 | `META_SEQ_SENTINEL` | `99` | `_meta_msg`의 `seq_in_turn` (turn 내 최후 위치) |
+| `META_PATCH_APPLIED_SEQ` | `98` | `_patch_applied_msg`의 `seq_in_turn` (ADR-10 R2.7). 시간 순(turn 내 발생)은 reviewer 앞이지만 직렬화 순(`(turn_id, seq_in_turn)` 정렬)은 reviewer 뒤 — 의도된 비대칭, driver 다음 턴 prompt 강조 효과 |
 | `DEFAULT_TIMEOUT_S` | `300` | subprocess timeout (code-conventions §3 명시 필수) |
 
 ## 핵심 헬퍼
@@ -64,7 +65,7 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 
 빈 body → `(이전 턴 없음)`.
 
-## 메시지 생성 헬퍼 4종
+## 메시지 생성 헬퍼 5종
 
 | 헬퍼 | 시그니처 | 호출 위치 |
 |---|---|---|
@@ -72,6 +73,9 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 | `_error_msg(turn_id, seq_in_turn, role, slot, mode, exc, workdir, *, parent_id, vendor="system", agent_cli="system", latency_ms=0, response_meta=None) -> Message` | 빈 응답·timeout·auth fail | `run_turn` |
 | `_task_msg(task, mode, workdir) -> Message` | turn_id=0 첫 메시지 | `run_session` |
 | `_meta_msg(turn_id, content, workdir, mode, *, parent_id, convergence_streak=None) -> Message` | auto_end_converged·auto-end (max-turns reached) | `run_session` |
+| `_patch_applied_msg(turn_id, workdir, mode, content, *, parent_id, apply_status, apply_error, files_changed) -> Message` (ADR-10 R2.7) | search-replace 적용 결과 (성공/실패 모두) | `run_turn` |
+
+`_patch_applied_msg`: `from_="system"`, `slot=None`, `kind="patch_applied"`, `seq_in_turn=META_PATCH_APPLIED_SEQ`. `meta`는 `dataclasses.replace(SENTINEL_META(workdir), apply_status=..., apply_error=..., files_changed=...)`로 ADR-10 3 필드 채움 (`patches`는 None — proposal 측 책임). `content`는 호출자(`run_turn`)가 만든 prefix `apply_status=...` 명시 요약 — driver의 reviewer critique 오인 차단 mitigation.
 
 **`_error_msg.response_meta`** (P1 fix): 빈 응답 case (정상 호출 + `text=""`)에 어댑터 응답 meta 전달 → token 4종 + cost + model 보존 (P-JSONL silent loss 차단). exception case는 None → `SENTINEL_META` fallback.
 
@@ -83,16 +87,23 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 ```
 1. history = bus.read_all()                     # turn_id < N snapshot
-2. driver: build_prompt + subprocess + bus.append(proposal)
+2. driver: build_prompt + subprocess
    - 빈 응답 (resp.text.strip() = "") → _error_msg(response_meta=resp.meta) + return
-3. reviewer: build_prompt(bus.read_all())       # proposal 포함
+   - patches = extract_patches(resp.text)        # ADR-10 R2 patches 추출
+   - proposal_meta = dataclasses.replace(resp.meta, patches=patches or None)
+   - bus.append(proposal)                        # meta.patches에 1회로 기록 (P-JSONL append-only)
+2.6. R2.6 — if patches: status, error, files_changed = apply_patches(patches, workdir=workdir)
+2.7. R2.7 — if patches: bus.append(_patch_applied_msg(... summary, apply_status, apply_error, files_changed))
+   - summary prefix `apply_status=ok|failed` (driver 오인 차단 mitigation)
+   - patches 0개면 R2.6/R2.7 skip — 노이즈 차단
+3. reviewer: build_prompt(bus.read_all())       # proposal + (있으면) patch_applied 포함
    - is_converged = _detect_converged(resp.text)
    - critique_meta = dataclasses.replace(resp.meta, convergence_streak=1 if is_converged else None)
    - bus.append(critique)
    - 빈 응답 → _error_msg + return
 ```
 
-`dataclasses.replace`로 frozen Meta 변경 X (어댑터 meta 정직성 — 새 Meta 생성).
+`dataclasses.replace`로 frozen Meta 변경 X (어댑터 meta 정직성 — 새 Meta 생성). `apply_patches`는 path validation·dry-run·all-or-nothing commit·best-effort 롤백 (patch_apply.md 정통).
 
 ### `run_session(args: argparse.Namespace) -> int`
 
@@ -161,6 +172,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 - `runtime-docs/systems/run-mode.md` — 모드 단위 진리 (본 모듈이 구현)
 - `agents.md` — 어댑터 인터페이스 (driver/reviewer 호출 대상)
-- `jsonl-bus.md` — Message/Meta 스키마 (헬퍼 4종이 생성)
-- `cwd-isolation.md` — ADR-6 메커니즘 (run_session repo-root 차단)
-- `architecture.md` ADR-1·ADR-3·ADR-9 (stateless·모드↔role 매핑·[CONVERGED] streak)
+- `jsonl-bus.md` — Message/Meta 스키마 (헬퍼 5종이 생성, Meta 18 필드)
+- `cwd-isolation.md` — ADR-6 메커니즘 + §Layer 4 patch_apply 쓰기 경계
+- `patch-apply.md` — ADR-10 search-replace 모듈 (`extract_patches`/`apply_patches`/`validate_patch_path`/`PatchApplyError`) — `run_turn` R2/R2.6에서 호출
+- `architecture.md` ADR-1·ADR-3·ADR-9·ADR-10 (stateless·모드↔role 매핑·[CONVERGED] streak·search-replace 메커니즘)

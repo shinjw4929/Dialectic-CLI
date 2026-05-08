@@ -69,6 +69,8 @@ def validate_patch_path(workdir: Path, file: str) -> Path:
 
 R2.6 `apply_patches` 진입 직전 모든 patch의 FILE 경로를 본 함수로 검증. 1개라도 외부면 즉시 `apply_status=failed, apply_error="path outside workdir: <file>"` 기록 (all-or-nothing 트랜잭션). symlink escape는 `Path.resolve(strict=False)` 후 동일 prefix 검사.
 
+**정통 코드 위치**: `src/patch_apply.py::validate_patch_path` (시그니처 1:1) — 본 spec과 일관 검증은 `tests/test_patch_apply.py::test_validate_patch_path_ssot` + `test_apply_path_traversal_blocked`. 모듈 narrative 전체는 [`patch-apply.md`](patch-apply.md).
+
 → `outline/02-communication.md` §2.3 R2.6 노드 텍스트, §2.8 실패 모드 표 "Patch FILE 경로 workdir 외부" 행, `protocol.md` §4 R2.6 + §9와 1:1 일치.
 
 ### Layer 3: 어댑터 옵션으로 cwd 자동 로드 보강

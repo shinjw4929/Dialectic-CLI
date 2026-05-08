@@ -12,19 +12,19 @@
 | `msg_id` | `str` | uuid4 hex (정확히 36자 dash-form) |
 | `parent_id` | `str \| None` | task만 None, 그 외 직전 메시지 msg_id (DAG 무결성) |
 | `turn_id` | `int` | 0=task, 1+=N번째 턴 |
-| `seq_in_turn` | `int` | driver=1, reviewer=2, user=3, meta=99 (`META_SEQ_SENTINEL`) |
+| `seq_in_turn` | `int` | driver=1, reviewer=2, user=3, patch_applied=98 (`META_PATCH_APPLIED_SEQ`, ADR-10), meta=99 (`META_SEQ_SENTINEL`) |
 | `from_` | `str` | "system"/"user"/"implementer"/"spec-reviewer"/"planner"/"plan-reviewer". `from`은 Python 예약어이라 `from_` 필드 사용, `to_dict()`에서 `"from"` 키로 변환 |
 | `to` | `str` | "broadcast" 또는 role |
 | `slot` | `str \| None` | "driver"/"reviewer"/None (system/user) |
 | `mode` | `str` | "run"/"plan"/"implement"/"compare" |
-| `kind` | `str` | "task"/"proposal"/"critique"/"decision"/"error"/"meta" |
+| `kind` | `str` | "task"/"proposal"/"critique"/"decision"/"error"/"meta"/"patch_applied" (ADR-10 R2.7) |
 | `content` | `str` | 본문 |
 | `directive` | `str \| None` | 사용자 directive (kind=decision일 때) |
-| `meta` | `Meta` | 14 필드 dataclass (아래) |
+| `meta` | `Meta` | 18 필드 dataclass (아래) |
 
-### Meta — 14 필드 (frozen=True, slots=True)
+### Meta — 18 필드 (frozen=True, slots=True)
 
-13 default-없는 + 1 default (`convergence_streak`).
+13 default-없는 + 5 default (`convergence_streak` + ADR-10 4 필드).
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -42,6 +42,10 @@
 | `is_mock` | `bool` | 실 호출=False, mock 재생=True |
 | `workdir` | `str` | resolved cwd (재현성) |
 | `convergence_streak` | `int \| None = None` | reviewer `[CONVERGED]` 1, 그 외 None. auto_end_converged 메시지에 K 박힘 |
+| `patches` | `list[dict[str,str]] \| None = None` | kind=proposal일 때 driver 응답에서 추출한 search-replace 블록 리스트 (ADR-10). 빈 리스트면 None 일관 |
+| `apply_status` | `str \| None = None` | kind=patch_applied일 때만 `"ok"` 또는 `"failed"` (ADR-10 R2.7) |
+| `apply_error` | `str \| None = None` | apply_status=failed 시 사유 (예: `"path outside workdir: ..."`, `"search not found in ..."`, `"ambiguous match: ..."`, `"empty SEARCH not allowed in ..."`) |
+| `files_changed` | `list[str] \| None = None` | apply_status=ok 시 변경된 파일 상대 경로 리스트, failed 시 빈 리스트 또는 None |
 
 ### to_dict / from_dict
 

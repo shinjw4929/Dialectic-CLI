@@ -14,6 +14,14 @@
 
 ---
 
+## 지원 플랫폼
+
+- **Linux / WSL2** — 1차 검증 환경. ADR-10 `validate_patch_path` (`Path.resolve()` symlink 해소)는 Linux/WSL 기준 검증.
+- **macOS** — 동일 POSIX 동작 가정 (별도 정식 검증 0).
+- **Windows native** — deferred. `Path.resolve()` symlink 처리 OS 차이 + drive letter 정규화 별도 검증 필요. 별도 plan(`006-windows-native-support`) backlog.
+
+---
+
 ## TODO (코드 미구현, 일정은 `outline/05-timeline.md`)
 
 | 영역 | 산출물 | Day |

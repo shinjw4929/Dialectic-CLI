@@ -27,8 +27,9 @@ flowchart TD
     Turn["run_turn"]
     DriverPrompt["build_prompt(driver)<br/>ROLE + TASK + HISTORY"]
     Driver["driver adapter<br/>codex | claude"]
-    Proposal["append proposal"]
-    ReviewerPrompt["build_prompt(reviewer)<br/>proposal 포함 HISTORY"]
+    Proposal["append proposal<br/>meta.patches 추출 (ADR-10)"]
+    PatchApply["if patches:<br/>apply_patches all-or-nothing<br/>append patch_applied (R2.7)"]
+    ReviewerPrompt["build_prompt(reviewer)<br/>proposal+patch_applied 포함 HISTORY"]
     Reviewer["reviewer adapter<br/>codex | claude"]
     Critique["append critique"]
     EndCheck{"종료 조건?"}
@@ -39,7 +40,7 @@ flowchart TD
 
     CLI --> Session --> Guard --> Logs --> Task --> Loop --> Turn
     Turn --> DriverPrompt --> Driver --> Proposal
-    Proposal --> ReviewerPrompt --> Reviewer --> Critique --> EndCheck
+    Proposal --> PatchApply --> ReviewerPrompt --> Reviewer --> Critique --> EndCheck
     EndCheck -- "fatal error" --> Error
     EndCheck -- "[CONVERGED] streak >= K" --> Converged
     EndCheck -- "turn == max_turns" --> MaxTurns
@@ -50,19 +51,23 @@ flowchart TD
 
 ```text
 task
-  -> proposal
+  -> proposal           (meta.patches 추출, ADR-10)
+  -> [patch_applied]    (proposal에 patches 있으면; ADR-10 R2.7)
   -> critique
   -> meta
 ```
 
 일반적인 한 턴 성공 로그는 다음 순서다.
 
-| 순서 | kind | from | slot | 의미 |
-|---|---|---|---|---|
-| 1 | `task` | `system` | null | 사용자 task 기록 |
-| 2 | `proposal` | `implementer` | `driver` | driver 제안 |
-| 3 | `critique` | `spec-reviewer` | `reviewer` | reviewer 검토 |
-| 4 | `meta` | `system` | null | 자동 종료 사유 |
+| 순서 | kind | from | slot | seq_in_turn | 의미 |
+|---|---|---|---|---|---|
+| 1 | `task` | `system` | null | 1 (turn_id=0) | 사용자 task 기록 |
+| 2 | `proposal` | `implementer` | `driver` | 1 | driver 제안 + meta.patches |
+| 2.5 | `patch_applied` | `system` | null | 98 | (있을 때만) ADR-10 R2.7 search-replace 적용 결과 |
+| 3 | `critique` | `spec-reviewer` | `reviewer` | 2 | reviewer 검토 |
+| 4 | `meta` | `system` | null | 99 | 자동 종료 사유 |
+
+`(turn_id, seq_in_turn)` 정렬 직렬화 순서는 `proposal(1) → critique(2) → patch_applied(98) → meta(99)`. patch_applied는 시간 순(turn 내 발생)으로는 critique 앞이지만 직렬화 순으로는 critique 뒤 (ADR-10 의도된 비대칭, driver 다음 턴 prompt 강조 효과).
 
 ## 읽는 순서
 
@@ -75,4 +80,4 @@ task
 
 - 이 문서는 요약 지도다. 코드 변경 시 상세 정본을 먼저 갱신하고, 이 문서는 흐름이 바뀐 경우에만 맞춘다.
 - `runtime-docs/protocol.md`에는 예정 사양이 포함될 수 있다. 현재 CLI에 노출된 동작은 `runtime-docs/systems/run-mode.md`를 우선한다.
-- patch apply 흐름은 `protocol.md`에 사양이 있으나, 현재 `src/orchestrator.py`의 `run_turn`에는 아직 연결되지 않았다.
+- patch apply 흐름은 `protocol.md` 사양 + `src/orchestrator.py`의 `run_turn`에 통합 완료 (ADR-10, plan/completed/005-patch-apply-impl). `src/patch_apply.py` 정통.

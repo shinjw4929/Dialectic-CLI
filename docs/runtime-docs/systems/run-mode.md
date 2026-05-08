@@ -29,22 +29,24 @@ flowchart TD
     Start(["Turn N start"])
     R0["Resolve roles<br/>driver=implementer<br/>reviewer=spec-reviewer"]
     R1["build_prompt(driver)<br/>§1 ROLE = roles/implementer.md<br/>§2 TASK<br/>§3 HISTORY (turn_id<N)<br/>§4 YOUR TURN"]
-    R2["subprocess: codex exec --json<br/>cwd=resolved_workdir<br/>append kind=proposal, slot=driver"]
-    R3["build_prompt(reviewer)<br/>§3 HISTORY = turn N proposal 포함"]
+    R2["subprocess: codex exec --json<br/>cwd=resolved_workdir<br/>응답에서 patches 추출 (ADR-10)<br/>append kind=proposal, slot=driver<br/>meta.patches=[...] or None"]
+    R26["**R2.6** apply_patches(patches, workdir=workdir)<br/>(if patches; ADR-10 all-or-nothing)<br/>path validation → 빈 SEARCH 차단 → dry-run unique-match → commit write"]
+    R27["**R2.7** append kind=patch_applied<br/>seq=98, from=system<br/>meta.apply_status=ok|failed<br/>content=apply_status=... (prefix 명시)"]
+    R3["build_prompt(reviewer)<br/>§3 HISTORY = turn N proposal+patch_applied 포함"]
     R4["subprocess: claude -p<br/>(stdin: 4섹션 prompt)<br/>append kind=critique, slot=reviewer<br/>meta.convergence_streak = 1 if [CONVERGED] else None"]
     R5{"streak >= K?"}
     R6["append kind=meta<br/>content=auto_end_converged<br/>meta.convergence_streak=K<br/>early return"]
     R7{"turn < max_turns?"}
     R8["append kind=meta<br/>content=auto-end (max-turns reached)"]
 
-    Start --> R0 --> R1 --> R2 --> R3 --> R4 --> R5
+    Start --> R0 --> R1 --> R2 --> R26 --> R27 --> R3 --> R4 --> R5
     R5 -- yes --> R6
     R5 -- no, streak reset/누적 --> R7
     R7 -- yes, N+=1 --> R1
     R7 -- no --> R8
 ```
 
-`protocol.md §4 :212-231` 라이프사이클 mermaid의 run 모드 구현. R5/R6은 outline/02 §2.9 [CONVERGED] 메커니즘 보강.
+`protocol.md §4 :226-248` 라이프사이클 mermaid의 run 모드 구현. R2.6/R2.7은 ADR-10 search-replace 메커니즘 (patches 0개면 skip — 노이즈 차단). R5/R6은 outline/02 §2.9 [CONVERGED] 메커니즘 보강.
 
 ## 3. 메시지 흐름 (실 호출 검증 기록)
 
@@ -53,9 +55,12 @@ flowchart TD
 | 라인 | turn_id | seq_in_turn | from | kind | parent_id | meta 핵심 |
 |---|---|---|---|---|---|---|
 | 1 | 0 | 1 | system | task | null | vendor=system, is_mock=false |
-| 2 | 1 | 1 | implementer | proposal | (task) | vendor=openai, agent_cli=codex, thread_id=..., reasoning_output_tokens=37 |
-| 3 | 1 | 2 | spec-reviewer | critique | (proposal) | vendor=anthropic, agent_cli=claude, session_id=..., **convergence_streak=1**, cost_usd=0.063 |
+| 2 | 1 | 1 | implementer | proposal | (task) | vendor=openai, agent_cli=codex, thread_id=..., reasoning_output_tokens=37, **patches=[...] or None (ADR-10)** |
+| 2.5 | 1 | 98 | system | patch_applied | (proposal) | (있을 때만) **apply_status=ok\|failed, files_changed=[...]** (ADR-10 R2.7) |
+| 3 | 1 | 2 | spec-reviewer | critique | (proposal 또는 patch_applied) | vendor=anthropic, agent_cli=claude, session_id=..., **convergence_streak=1**, cost_usd=0.063 |
 | 4 | 1 | 99 | system | meta (auto_end_converged) | (critique) | vendor=system, **convergence_streak=1** |
+
+`(seq_in_turn, ts)` 정렬 시 직렬화 순서는 `proposal(1) → critique(2) → patch_applied(98) → meta(99)` — patch_applied는 **시간 순**(turn 내 발생 순)으로는 critique 앞이지만 **직렬화 순**으로는 critique 뒤 (의도된 비대칭, ADR-10 §5.6 mitigation: driver 다음 턴 prompt에서 마지막 강조 효과 ↑).
 
 DAG 무결성: `parent_id` 모두 직전 메시지 `msg_id`. task만 `parent_id=null`.
 

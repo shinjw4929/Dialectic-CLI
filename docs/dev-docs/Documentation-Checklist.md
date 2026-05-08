@@ -59,6 +59,7 @@ docs/
 | `src/orchestrator.py` MODE_ROLES dict | `docs/runtime-docs/protocol.md` §3 모드↔role 매핑, `docs/dev-docs/architecture.md` §4, **`docs/dev-docs/systems/orchestrator.md`**, **`docs/runtime-docs/systems/INDEX.md`** 4 모드 매트릭스 |
 | `src/bus.py` (JSONL writer·flush 정책) | `docs/runtime-docs/protocol.md` §2, `docs/dev-docs/code-conventions.md` §4, **`docs/dev-docs/systems/jsonl-bus.md`** |
 | `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증), **`docs/dev-docs/systems/jsonl-bus.md` §schema** |
+| `src/patch_apply.py` (ADR-10 search-replace 모듈) | `docs/runtime-docs/protocol.md` §2 (`meta.patches`/`apply_status`/`apply_error`/`files_changed`), §4 R2.6/R2.7 mermaid, §9 실패 모드 3행, **`docs/dev-docs/systems/patch-apply.md`**, `docs/dev-docs/systems/cwd-isolation.md` §Layer 4 (`validate_patch_path` SSOT 1:1), `docs/runtime-docs/roles/implementer.md:78` 마커 형식 |
 | `src/env_check.py` (`dialectic doctor` 점검 항목) | **`docs/dev-docs/systems/env-check.md`**, README §환경설정 |
 | `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령, **`docs/dev-docs/systems/orchestrator.md` §cli**, **`docs/runtime-docs/systems/<mode>.md` §1**, **`docs/current-implementation-flow.md` (명령 표면 변경 시)** |
 | subprocess `cwd=` 또는 ADR-6 차단 메커니즘 (横단) | **`docs/dev-docs/systems/cwd-isolation.md`**, `docs/dev-docs/architecture.md` ADR-6, `outline/01-harness-layers.md` §1.3 |
