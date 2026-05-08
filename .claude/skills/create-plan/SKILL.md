@@ -38,9 +38,40 @@ plan/<work-id>/
 ### 1. 의도 분석
 
 사용자 입력에서 추출:
-- **작업 단위 식별**: 한 plan으로 다룰 범위 (너무 크면 사용자에게 분할 제안)
-- **work-id 부여**: `001-`, `002-` 등 순차 또는 의미 단위 (`codex-adapter`, `cwd-isolation`). 충돌 검사 시 **`plan/` 루트뿐 아니라 `plan/completed/` 하위까지 모두 조회** — 완수된 plan ID도 재사용 금지 (commit history 추적 모호 차단). `ls plan/ plan/completed/` 또는 `find plan -maxdepth 2 -type d` 사용.
+- **작업 단위 식별**: 한 plan으로 다룰 범위 (Step 1.5에서 분할 평가).
+- **work-id 부여**: `001-`, `002-` 등 순차 또는 의미 단위 (`codex-adapter`, `cwd-isolation`). 충돌 검사 시 **`plan/` 루트뿐 아니라 `plan/completed/` 하위까지 모두 조회** — 완수된 plan ID도 재사용 금지 (commit history 추적 모호 차단). `ls plan/ plan/completed/` 또는 `find plan -maxdepth 2 -type d` 사용. **단, 분할 후보가 발생할 수 있으면 Step 1.5 결정 후에 부여** (분할 시 work-id 두 개 필요).
 - **관련 ADR/Q 검색**: `docs/dev-docs/architecture.md` ADR 표, `outline/README.md` 결정 보드에서 매칭 항목.
+
+### 1.5 범위 평가 / 분할 제안
+
+Step 1에서 식별한 작업 단위를 4개 신호로 평가. **단일 plan이 비대해지면 review·실행 단계에서 결함이 누적**되므로 사전에 분할 결정.
+
+| 신호 | 의미 | 측정 |
+|---|---|---|
+| **S1** | Phase 후보 5+ | Step 4 분할 시 5개 이상이 될 것으로 예상 |
+| **S2** | 독립 기능 단위 2+ | 의존성 약한 두 영역 동시 변경 (예: 어댑터 추가 + bus 스키마 변경) |
+| **S3** | 매칭 ADR/Q번호 2+ | 서로 다른 ADR이 한 plan에 들어옴 |
+| **S4** | 영향 모듈 3+ | `Documentation-Checklist.md` §1 매핑 기준 모듈 수 (orchestrator + bus + agents 등) |
+
+**신호 ≥ 2 → plan 작성 일시정지, 분할 후보 + 의존성 + 사용자 결정 대기**. 자동 분할 X — 사용자 결정 필수.
+
+분할 후보 보고 형식 (사용자 터미널 응답 — ASCII art):
+
+```
++-- 분할 후보 (신호 N개) ------------+
+| Plan A (work-id-a-<slug>): <범위>  |
+|   의존: 없음 (선행)                |
+|   해당 신호: S1, S3                |
+| Plan B (work-id-b-<slug>): <범위>  |
+|   의존: A 산출 <파일/인터페이스>   |
+|   해당 신호: S2                    |
++------------------------------------+
+계속 단일 plan? / A·B 분리?
+```
+
+- 사용자가 **분리** 선택 → 분할 결정 기록 + work-id 두 개 부여 + Step 2(AS-IS)부터 plan별 재시작.
+- 사용자가 **단일** 선택 → 그대로 Step 2 진행 (이유 메모 권고: 추후 plan §5 위험에 "범위 비대 — 사용자 단일 결정" 한 줄).
+- **임계는 휴리스틱**: review-plan이 사후 catch (P1). 반복 false positive/negative 발생 시 `docs/dev-docs/validation.md`에 환원하고 본 표 갱신.
 
 ### 2. AS-IS 조사
 
@@ -141,6 +172,7 @@ mermaid 의존성 그래프 작성 — 01-plan.md §3.1에 들어감.
 - **시간 추정 (`~30분`, `~1.5h`)**: 사용자 가용 변동성으로 ETA 무의미. LOC·단계 수로 정성 표현.
 - **00-summary.md 부재**: 폴더 첫 진입 시 plan 그림 파악 비용 큼. 30~80줄 digest 필수.
 - **summary가 본문과 어긋남**: digest의 목적 역행 (오해 유발). 01-plan.md 갱신 시 summary 1줄 단위로 동기화.
+- **단일 plan 비대 (신호 ≥ 2)**: Step 1.5 평가 생략 → review·실행 결함 누적, plan 작성 후 분리 비용 ↑. 신호 ≥ 2 감지 시 작성 일시정지 + 분할 후보 보고 + 사용자 결정 대기.
 
 ## 본 도구 specific 도메인 매핑
 

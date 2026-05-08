@@ -261,6 +261,7 @@ def _msg(turn_id: int, ...) -> Message:
 | **시간 추정 (`~30분`, `~1.5h`)** | 사용자 가용·체력 변동성으로 ETA 무의미 | LOC·단계 수·도메인 swap 정도로 정성 표현 |
 | **00-summary.md 부재** | 폴더 첫 진입 시 plan 그림 파악 비용 큼. review-plan·execute-plan 이전 단계의 사용자 이해 비대 | §2 형식으로 30~80줄 digest 작성. 본문(01-plan.md)의 요약본 |
 | **00-summary.md ↔ 01-plan.md 비동기** | summary가 본문과 어긋나면 오히려 오해 유발 (digest의 목적 역행) | 본문 변경 시 summary 핵심 항목 1줄 단위로 손봄. review-plan 점검 항목 |
+| **단일 plan 비대 (분할 누락)** | Phase 5+, 독립 기능 2+, ADR 2+, 영향 모듈 3+ 중 2개 이상 신호 발생인데도 한 plan에 묶음 → review-plan 결함 누적, 진행 추적 어려움, 분할 비용 사후 폭증 | create-plan Step 1.5 평가 → 신호 ≥ 2면 작성 일시정지 + 분할 후보(의존성·산출물 기반) 보고 + 사용자 결정. 분리 시 work-id 두 개 부여, 후행 plan §0에 선행 plan 산출 의존 명시 |
 
 ---
 
