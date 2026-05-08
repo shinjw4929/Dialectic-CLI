@@ -60,12 +60,13 @@ docs/
 | `src/bus.py` (JSONL writer·flush 정책) | `docs/runtime-docs/protocol.md` §2, `docs/dev-docs/code-conventions.md` §4, **`docs/dev-docs/systems/jsonl-bus.md`** |
 | `src/schema.py` (메시지 dataclass 필드) | `docs/runtime-docs/protocol.md` §2 메시지 스키마 (필드 1:1 일치 검증), **`docs/dev-docs/systems/jsonl-bus.md` §schema** |
 | `src/patch_apply.py` (ADR-10 search-replace 모듈) | `docs/runtime-docs/protocol.md` §2 (`meta.patches`/`apply_status`/`apply_error`/`files_changed`), §4 R2.6/R2.7 mermaid, §9 실패 모드 3행, **`docs/dev-docs/systems/patch-apply.md`**, `docs/dev-docs/systems/cwd-isolation.md` §Layer 4 (`validate_patch_path` SSOT 1:1), `docs/runtime-docs/roles/implementer.md:78` 마커 형식 |
-| `src/env_check.py` (`dialectic doctor` 점검 항목) | **`docs/dev-docs/systems/env-check.md`**, README §환경설정 |
+| `src/env_check.py` (`dialectic doctor` 점검 항목) | **`docs/dev-docs/systems/env-check.md`**, README §환경설정 / §`dialectic doctor` 안내, `src/env_check.py:1` 모듈 docstring (점검 항목 narrative 동기화) |
 | `src/cli.py` (서브커맨드·인자) | `README.md` 사용 예시, `docs/dev-docs/code-conventions.md` §6, `docs/dev-docs/architecture.md` §4 모드별 명령, **`docs/dev-docs/systems/orchestrator.md` §cli**, **`docs/runtime-docs/systems/<mode>.md` §1**, **`docs/current-implementation-flow.md` (명령 표면 변경 시)** |
 | subprocess `cwd=` 또는 ADR-6 차단 메커니즘 (横단) | **`docs/dev-docs/systems/cwd-isolation.md`**, `docs/dev-docs/architecture.md` ADR-6, `outline/01-harness-layers.md` §1.3 |
 | `src/ui.py` (사용자 개입 UI) | `outline/03-ux.md` §3.2/3.3 |
 | `src/dev_skill_cli.py` (dev-time 스킬 wrapper) | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `AGENTS.md`/`CLAUDE.md` Skills §5, `docs/dev-docs/codex-compat.md` Command Wrapper, `.codex/skills/<workflow>/SKILL.md` 존재 검증 |
 | `dialectic-skill` repo-root wrapper | `README.md` 개발 / 기여, `setup.sh` 설치 후 안내, `pyproject.toml` console script와 동작 일치 검증 |
+| `dialectic` repo-root wrapper (shim) | `README.md` 5초 데모, `setup.sh` 설치 후 안내·`~/.local/bin` symlink 등록, `pyproject.toml` console script와 동작 일치 검증 (venv activate 없이도 동작 — `python3 -m src.cli`) |
 
 ### 1.2 런타임 .md 변경 (B 층)
 
@@ -98,6 +99,7 @@ docs/
 | `.claude/skills/review-plan/SKILL.md` | `docs/dev-docs/Checklists/review-plan-checklist.md` (검사 항목 동기화) |
 | `.claude/skills/review-code/SKILL.md` | `docs/dev-docs/Checklists/review-code-checklist.md` (검사 항목 동기화) |
 | `.claude/skills/create-plan/SKILL.md` 형식 | `docs/dev-docs/Plans/plan-writing-guide.md` AS-IS/TO-BE 형식, 기존 `outline/` 산출물과 일관성 |
+| `docs/dev-docs/Plans/upcoming-plans.md` 변경 (backlog plan 추가/제거) | 본 파일이 backlog SSOT — plan 신규 작성 시점에 `plan/<work-id>/01-plan.md §0 메타` 또는 `§7 참조`에서 인용. 진입 후 plan 폴더 본문이 정본 (본 파일은 backlog 메모) — 진입 plan은 본 파일에서 entry 제거 (active만 남기는 패턴) |
 
 ### 1.5 task·녹음 변경
 

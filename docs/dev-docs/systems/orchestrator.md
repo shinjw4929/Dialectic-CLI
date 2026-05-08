@@ -87,23 +87,28 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 ```
 1. history = bus.read_all()                     # turn_id < N snapshot
-2. driver: build_prompt + subprocess
+2. driver: with Spinner("[role: vendor] running..."): build_prompt + subprocess
+   - spinner는 `try` 내부에서 build_prompt + runner.run만 wrap (호출 단위 boundary)
    - 빈 응답 (resp.text.strip() = "") → _error_msg(response_meta=resp.meta) + return
    - patches = extract_patches(resp.text)        # ADR-10 R2 patches 추출
    - proposal_meta = dataclasses.replace(resp.meta, patches=patches or None)
    - bus.append(proposal)                        # meta.patches에 1회로 기록 (P-JSONL append-only)
+   - print_message(role_label, vendor_label, kind="proposal", text, meta)  # outline/03-ux §3.2:193-201 stdout 출력
 2.6. R2.6 — if patches: status, error, files_changed = apply_patches(patches, workdir=workdir)
 2.7. R2.7 — if patches: bus.append(_patch_applied_msg(... summary, apply_status, apply_error, files_changed))
    - summary prefix `apply_status=ok|failed` (driver 오인 차단 mitigation)
    - patches 0개면 R2.6/R2.7 skip — 노이즈 차단
-3. reviewer: build_prompt(bus.read_all())       # proposal + (있으면) patch_applied 포함
+3. reviewer: with Spinner(...): build_prompt(bus.read_all()) + subprocess  # proposal + patch_applied 포함
    - is_converged = _detect_converged(resp.text)
    - critique_meta = dataclasses.replace(resp.meta, convergence_streak=1 if is_converged else None)
    - bus.append(critique)
+   - print_message(role_label, vendor_label, kind="critique", text, meta)  # outline/03-ux §3.2:204-225
    - 빈 응답 → _error_msg + return
 ```
 
 `dataclasses.replace`로 frozen Meta 변경 X (어댑터 meta 정직성 — 새 Meta 생성). `apply_patches`는 path validation·dry-run·all-or-nothing commit·best-effort 롤백 (patch_apply.md 정통).
+
+**UI wiring** (plan 008-ui-polish): driver/reviewer 호출은 `with stdin_canonical_off(), Spinner(...)` 중첩으로 wrap — Spinner는 stderr 진행 표시(`[{ROLE_LABEL_KO[role]}: {VENDOR_LABEL[runner.name]}] running... ⠋`, outline/03-ux §3.2:190 SSOT 1:1, isatty 가드 보유), `stdin_canonical_off`은 호출 동안 사용자 키 누름이 line으로 완성되어 다음 prompt에 누수되는 결함 차단(line discipline off + drain thread + INTR `\x03` 감지 시 SIGINT raise). 단계 종료 후 KeyboardInterrupt는 `cli._interactive_menu`의 `run_session` try/except까지 propagate되어 종료 확인 prompt로 처리(`_safe_input`과 동일 패턴). proposal/critique 정상 응답 시 `bus.append` 직후 `src/ui.py:print_message`로 stdout에 구분선·헤더(`✓ {latency}s · {tokens}` + cost optional)·본문 출력. ANSI 색상 outline §3.5:362 (proposal=cyan, critique=yellow). `kind in ("proposal", "critique")`만 처리 — 빈 응답·error 분기는 stdout 출력 X (후속 plan 검토).
 
 ### `run_session(args: argparse.Namespace) -> int`
 
@@ -155,7 +160,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 ### default 메뉴 진입 (`_interactive_menu`)
 
-기획자 페르소나(outline/03-ux §3.1)의 default 진입로. `dialectic` 단독 실행 시 `_interactive_menu` 호출. Day 2 minimum cut: run 모드 + default 매핑(codex/claude) + max-turns=1 + `--interactive end-only` 고정 + task 한 줄 입력 후 즉시 run 분기. EOFError/KeyboardInterrupt 안전 종료(exit 0). `parser.parse_args` 재호출 회피 — `argparse.Namespace` 직접 구성으로 `sys.exit` 부작용 차단 (cli `args.func(args)` 패턴과 비대칭은 minimum cut 한정, 후속 plan에서 정합화 검토). 모드 선택·매핑 선택·턴 진행 화면(outline/03-ux §3.2 단계 2/4/5)은 후속 plan 분리.
+기획자 페르소나(outline/03-ux §3.1)의 default 진입로. `dialectic` 단독 실행 시 `_interactive_menu` 호출. Day 2 minimum cut: run 모드 + default 매핑(codex/claude) + `--interactive end-only` 고정. plan 008-ui-polish 보강: 헤더 1줄(default 매핑·인자 안내, 매번 노이즈 차단 위해 단축) + `with stdin_canonical_off(), Spinner("환경 점검 중..."):` 으로 `check_env()` wrap. `check_env()`는 claude/codex 양쪽 `version + auth/login`만 점검 (P-VENDOR 대칭) — `claude doctor`는 영구 제외 (codex 동등 명령 부재 + capture_output 호출 시 tty/pipe 분기로 30s+ hang). spinner 종료 후 `flush_stdin(grace_period_s=0.1)` — mode 복원·flush 사이 race window를 통과하는 fast-typing/auto-repeat keystroke 100ms 동안 추가 폐기. `stdin_canonical_off`는 termios로 line discipline 차단 — spinner 중 사용자 Enter가 line으로 완성되어 다음 `input()` prompt에 누수되는 root cause 차단(exit 시 모드 복원 + tcflush). `flush_stdin()`은 추가 안전망 drain. 활성 부족(N<M) 시 fail sub-check를 `tool/sub` 형식 1줄 출력. task input 등 모든 input은 `_safe_input` wrap — EOF/Ctrl-C 시 즉시 종료 X, "종료하시겠습니까? (Enter=종료, n=계속)" 확인 prompt 후 사용자 의지 명시 (실수 안전망). 내부적으로 `_readline_input`(`sys.stdin.readline()` 직접 사용)으로 `input()`의 GNU readline wide-char(한글 등 CJK) cursor 계산 결함 회피. 추가로 메뉴 진입 시 `stdin_utf8_mode` 컨텍스트로 line discipline IUTF8 iflag set — multi-byte 한 char 단위 Backspace로 (default off 시 byte 단위 → cursor 결함 root cause). Python termios 모듈 IUTF8 상수 미노출 빌드에선 `_LINUX_IUTF8 = 0o040000` hardcode fallback. trade-off: 좌우 이동·히스토리 등 line edit 기능 잃음(한 줄 입력 한정 메뉴라 영향 작음). prompt 자체도 짧게(`task> ` 등) + example·도움말 안내는 별도 print 라인. 빈 task 재요청 retry (종료는 Ctrl-C/EOF + 종료 확인 통과만) + max-turns 입력 단계(default 1, 빈 입력 fallback, 비정수/음수 retry) + 진행 확인 단계(`진행? [Y/n] (n=task 재입력):`, `n` 거부 시 task 재입력 outer 루프 continue, 빈/y/invalid는 Y default 진행). EOFError/KeyboardInterrupt 안전 종료(exit 0). `parser.parse_args` 재호출 회피 — `argparse.Namespace` 직접 구성으로 `sys.exit` 부작용 차단 (cli `args.func(args)` 패턴과 비대칭은 minimum cut 한정, 후속 plan에서 정합화 검토). 모드 선택·매핑 선택·턴 진행 화면(outline/03-ux §3.2 단계 2/4/5)은 후속 plan 분리.
 
 ### entry-point
 

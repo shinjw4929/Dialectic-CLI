@@ -6,7 +6,7 @@
 
 진입로는 두 가지:
 
-1. **default 메뉴 진입** — `dialectic` 단독 실행 → `_interactive_menu` 호출 → 환경 점검 1줄 요약 + task 한 줄 입력 → run 분기 (default 매핑: driver=codex, reviewer=claude, max-turns=1, interactive=end-only). 기획자 페르소나(outline/03-ux §3.1)의 default 진입로. EOFError/KeyboardInterrupt 안전 종료(exit 0). Day 2 minimum cut — 모드/매핑 선택은 후속 plan.
+1. **default 메뉴 진입** — `dialectic` 단독 실행 → `_interactive_menu` 호출 → 헤더 1줄 + `Spinner("환경 점검 중...")` wrap한 `check_env()` (수십 초 외부 호출 가능, isatty=False 시 no-op) + 환경 점검 결과(활성 부족 시만 출력) + task 한 줄 입력(example 표시 + `?` 도움말 키) + max-turns 입력(default 1, 빈/비정수/음수 처리) + 진행 확인 단계(`진행? [Y/n] (n=task 재입력):`, `n` 거부 시 task 재입력 루프) → run 분기 (default 매핑: driver=codex, reviewer=claude, interactive=end-only, max-turns은 사용자 입력값). 호출 동안 stderr에 spinner(`[{role}: {vendor}] running... ⠋`, outline §3.2:190 SSOT) + 정상 응답 시 stdout에 구분선·헤더(`✓ latency · tokens`)·본문 출력(outline §3.2:193-225 SSOT, ANSI proposal=cyan/critique=yellow). 기획자 페르소나(outline/03-ux §3.1)의 default 진입로. EOFError/KeyboardInterrupt 안전 종료(exit 0). Day 2 minimum cut — 모드/매핑 선택·`dialectic logs` 서브커맨드는 후속 plan.
 2. **CLI 인자 명시** — 자동화/CI용. 하기 인자 표 그대로:
 
 ```bash

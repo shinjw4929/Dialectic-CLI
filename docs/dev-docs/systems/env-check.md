@@ -10,17 +10,22 @@ dialectic doctor   # 인자 없음
 
 `src/cli.py`의 argparse subparser `doctor` → `_print_env_check()` → `check_env()`.
 
-## check_env() 호출 4종
+## check_env() 호출 4종 (벤더 대칭, P-VENDOR 환원 적용)
 
 | 항목 | 명령 | timeout | 비용 |
 |---|---|---|---|
 | `claude.version` | `claude --version` | 5s | 0 |
 | `claude.auth` | `claude auth status` | 10s | 0 (인증 상태 JSON 출력) |
-| `claude.doctor` | `claude doctor` | **30s** | 0 (단 사용자 `~/.mcp.json` 부재 가정 — 존재 시 stdio MCP 서버 spawn 부수효과) |
 | `codex.version` | `codex --version` | 5s | 0 |
 | `codex.login` | `codex login status` | 10s | 0 (인증 상태) |
 
 각 호출은 `_run_capture(cmd, env, timeout, cwd=None)` → `subprocess.run(... cwd=cwd or Path.home(), env=env, check=False)`.
+
+**`claude doctor` 영구 제외** (validation.md §4.4 P-VENDOR 환원 사례 1, 2026-05-09):
+- codex는 외부 subprocess로 부를 doctor 동등 명령 부재 (`/status`는 codex CLI 내부 슬래시 명령) — claude doctor만 호출 시 벤더 비대칭.
+- `claude doctor`가 capture_output=True 호출 시 tty/pipe 분기로 30s+ hang (사용자 환경 사례: tty 0.5s vs subprocess 12s+ timeout).
+- 본 도구 책임은 "두 CLI 설치 + 인증 통과"까지. doctor의 connectivity check 등은 claude CLI 자체 진단 — 외부 도구 scope.
+- 사용자가 doctor 결과 필요 시 `claude doctor` 직접 호출.
 
 ## env 화이트리스트 (`_safe_env`)
 
@@ -44,7 +49,7 @@ def _safe_env() -> dict:
 
 - OAuth 캐시 위치 (`~/.claude/`, `~/.codex/`)에서 인증 정보 안정적 read
 - Dialectic-CLI repo 루트가 아니라 ADR-6 두 층 누수와 무관
-- 사용자 `~/.mcp.json` 부재 환경 가정 (있으면 `claude doctor`가 stdio MCP 서버 spawn — Day 3+ ephemeral cwd 옵션 검토)
+- (이전: 사용자 `~/.mcp.json` 존재 시 `claude doctor`가 stdio MCP 서버 spawn 부수효과 — doctor 영구 제외 후 무관)
 
 ## 출력 형식
 
@@ -53,7 +58,6 @@ return {
     "claude": {
         "version": {"ok": bool, "stdout": str[:200], "stderr": str[:200]},
         "auth":    {...},
-        "doctor":  {...},
     },
     "codex": {
         "version": {...},
@@ -77,7 +81,7 @@ return {
 | `check_env` 호출 항목 추가 | 본 §check_env() 표 + `cli.py _print_env_check` 출력 |
 | `_safe_env` 화이트리스트 변수 추가 | 본 §env 화이트리스트 + `agents.md` `_build_env` (중복 동기화) + 향후 `code-conventions.md §3` 갱신 검토 |
 | `_run_capture` 시그니처 (cwd 기본값 등) | 본 §cwd 정책 + `cwd-isolation.md` Layer 1 |
-| timeout 변경 (예: doctor 30s) | 본 §check_env() 표 |
+| timeout 변경 (예: auth 10s) | 본 §check_env() 표 |
 | 신규 CLI 진단 명령 (Day 3+ `dialectic logs` 등) | 본 §호출 표면 → 신규 SSOT 또는 본 파일 확장 |
 
 ## 관련 문서

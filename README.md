@@ -85,14 +85,17 @@ dialectic doctor           # claude/codex --version + auth status (비용 0)
 ## 5초 데모
 
 ```bash
-source .venv/bin/activate
+# setup.sh가 ~/.local/bin에 symlink 자동 등록 (PATH 포함 시) — venv activate 불필요.
+# 미등록 환경: `cd ~/Dialectic-CLI && ./dialectic` 또는 `source .venv/bin/activate` 후 호출.
 dialectic doctor                                           # 환경 점검
-dialectic                                                  # default 메뉴 진입 — task 한 줄 입력 → run 분기 (Day 2 한정: run + default 매핑 codex/claude + max-turns=1)
+dialectic                                                  # default 메뉴 — 환경 점검(spinner) → task 입력(example/?도움말) → max-turns(default 1) → 진행 확인 [Y/n] (n=task 재입력) → run 분기. 호출 중 spinner + 종료 시 stdout 결과 출력 (Day 2 한정: run + default 매핑 codex/claude)
 dialectic run --task "Reply with single digit: 1+1=?" \
     --workdir /tmp/dialectic-demo \
     --driver codex --reviewer claude --max-turns 1
 cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + proposal + critique + meta)
 ```
+
+> **메뉴 한글 입력 결함**: terminal emulator + line discipline + IME 조립 layer 합성으로 Backspace 표시가 부정확할 뿐 아니라 IME 조립 단계에서 **일부 char가 buffer에 누락**될 수 있습니다 (실 검증 사례: 28 char 입력 → 21 char 누적). 진행 확인 단계의 `task: '...'` echo back으로 시각 검증하고, 정확한 입력이 필요하면 `dialectic run --task "..."` CLI 인자로 우회 권장. 자세한 결함 분석은 `docs/dev-docs/validation.md §3 C-011`.
 
 ## `dialectic run` CLI 옵션 (Day 2)
 
@@ -107,7 +110,7 @@ cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + p
 | `--convergence-streak K` | `2` | reviewer `[CONVERGED]` 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9: `--max-turns < K+1` 시 K=1 fallback + stderr 경고. 양수만 |
 | `--interactive {end-only}` | `end-only` | Day 2는 `end-only`만 (인터랙티브 미구현 — max-turns/streak까지 자동). Day 3+에서 full/critical 추가 |
 
-`dialectic doctor`는 인자 없음 — claude/codex `--version` + `auth/login status` + `claude doctor` 비용 0 점검.
+`dialectic doctor`는 인자 없음 — claude/codex `--version` + `auth/login status` 비용 0 점검 (벤더 대칭, P-VENDOR 환원). `claude doctor`는 영구 제외 (codex 동등 명령 부재 + capture_output 호출 시 30s+ hang) — 결과 필요 시 사용자가 `claude doctor` 직접 호출.
 
 ## 현재 동작 모드
 
