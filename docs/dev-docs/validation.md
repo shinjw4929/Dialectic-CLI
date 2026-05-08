@@ -197,6 +197,61 @@
 - **narrative 동기화**: `cwd-isolation.md` Layer 2 + README `--workdir` 옵션 표 narrative 갱신.
 - **승격 판정**: Day 3+ 사용자 피드백(디스크 누적 불만 또는 결과 확인 권한 차단)이 발생 시 `--cleanup-workdir` 토글 또는 `~/.local/share/dialectic/runs/<ts>/` 같은 영속 경로로 변경 검토. 그 시점에 R-NNN 환원.
 
+### C-011: 한글/CJK 입력 시 terminal wide-char Backspace 표시 결함 — 표준 라이브러리 한계
+
+- **계층**: Knowledge (UX — terminal layer 표시)
+- **도메인**: 인터페이스/UX
+- **발견 경로**: 사용자 수동 검증 (plan 008-ui-polish hot-fix round)
+- **발견 횟수**: 1회 (2026-05-08, fix 미완)
+- **연관 P-id**: P-RAW (인접 — stdin manipulation 영역)
+- **패턴**: `_interactive_menu` task input 단계에서 한글 자모/완성형 입력 후 Backspace 시 cursor 위치 부정확 — prompt 영역 침범 또는 char 일부만 폐기. 4 layer 합성 결함:
+  1. **kernel line discipline**: IUTF8 set으로 multi-byte 한 char 단위 Backspace 처리 ✓ (`stdin_utf8_mode`)
+  2. **Python `sys.stdin.readline()`**: line discipline 정확 누적 결과 수신 ✓ (`_readline_input`)
+  3. **terminal emulator (Windows Terminal·alacritty 등)**: wide-char width(1 cell vs 2 cell) 시각 표시 ✗ (외부 책임)
+  4. **IME 조립 (한글 자모 → 완성형)**: byte stream 송신 + 조립 상태 시각 ✗ (외부 책임)
+- **fix 패턴 (이번 라운드 적용)**: trade-off 수용 (사용자 결정 — 외부 의존성 0 컨벤션 우선). `_input_confirm`에 task echo back으로 buffer 정확성 시각 검증 + prompt `> ` 2 ASCII char 최소화 + README/메뉴 narrative에 결함 명시. CLI 인자(`dialectic run --task "..."`) 우회 안내.
+- **사례 1 (실 검증, 2026-05-08)**: 사용자 의도 입력 `다익스트라 최단거리 알고리즘 Python 예제 작성` (28 char) → echo back + JSONL `task` content `다익스트라 최단거리 알고리즘 Pytho` (21 char). **`n 예제 작성` 7 char buffer에 누락** — IUTF8/`_readline_input`로 layer 1·2 cover했으나 layer 4 (IME 조립)에서 byte 일부 송신 누락 + 사용자가 시각 부정확으로 인지 못한 채 Enter. 이전 narrative "buffer 정확" 표현 정정 — IME 조립 단계가 buffer까지 영향. 다행히 driver(codex)가 "다익스트라 최단거리 알고리즘 Pytho"만 보고도 다익스트라 Python 예제 의미 추론 + reviewer가 `## 질문` 단락에서 task 짧음 명시 catch — cross-vendor dialectic이 부정확 입력에 1차 안전망 제공 (긍정 발견).
+- **narrative 동기화**: `orchestrator.md §default 메뉴`, `README.md §5초 데모` 한글 입력 결함 안내(buffer 누락 가능 명시), `cli.py:_input_task` 안내 print + 진행 확인 echo back 코드.
+- **승격 판정**: 사례 2회 누적 또는 평가 영향 발견 시 (a) `$EDITOR` 분기(외부 의존성 0 유지, ~30 LOC), (b) `prompt-toolkit` 외부 의존성 + ADR-NN 신설, (c) 자체 raw line edit 구현 (~200+ LOC) 중 결정. 본 라운드는 trade-off 수용 (사례 1회 + 사용자 명시 결정).
+
+### C-012: raw mode contextmanager의 thread.start() 실패 path mask
+
+- **계층**: Knowledge (안전성 — stdin manipulation 견고성)
+- **도메인**: 안전성
+- **발견 경로**: review-code (plan 008-ui-polish hot-fix round, P1)
+- **발견 횟수**: 1회 (2026-05-09, 본 라운드 fix 적용)
+- **연관 P-id**: **P-RAW**
+- **패턴**: `stdin_canonical_off` 같은 raw mode contextmanager에서 `tcsetattr` 등의 OSError로 thread.start() 미실행 시, finally의 `thread.join()`이 `RuntimeError("cannot join thread before it is started")` raise → 원본 OSError mask + mode 복원 차단. raw mode 추가 시 동일 위험 재발.
+- **fix 패턴 (이번 라운드 적용)**: `if drain_thread.is_alive(): drain_thread.join(timeout=THREAD_JOIN_TIMEOUT_S)` guard. 또는 start 성공 flag.
+- **narrative 동기화**: `src/ui.py:stdin_canonical_off` 코드 주석 (C-012, P-RAW 인접 인용).
+- **승격 판정**: 신규 raw-mode 컨텍스트 추가 시(예: spinner와 별개 raw 입력 단계) 동일 패턴 발견 즉시 R-NNN 환원 — 어댑터 작성 매번 점검 항목으로 review-code-checklist §"안전성" 승격 검토.
+
+### C-013: drain loop의 EOF byte 처리 누락 → CPU busy loop
+
+- **계층**: Knowledge (안전성 — raw read drain)
+- **도메인**: 안전성
+- **발견 경로**: review-code (plan 008-ui-polish hot-fix round, P1) + 환원 재검증 (`flush_stdin` 일관성 누락 추가 발견)
+- **발견 횟수**: **2회 누적** (2026-05-09 — `_drain_loop` + `flush_stdin` 양쪽)
+- **연관 P-id**: **P-RAW**
+- **패턴**: `os.read(fd, N)` 호출이 PTY closed/EOF 시 `b""` 반환. `select`가 EOF 상태를 ready로 보고 → 다음 iteration도 동일 → CPU 100% busy loop. raw read 패턴 추가 시 EOF guard 누락 위험.
+- **fix 패턴 (이번 라운드 적용, 2곳)**:
+  1. `src/ui.py:_drain_loop` — `if not data: return` guard.
+  2. `src/ui.py:flush_stdin` — `if not chunk: break` (이전 `and deadline is None` 조건이 grace mode에서 누락 → 환원 재검증 시 추가 발견).
+- **narrative 동기화**: 두 위치 모두 C-013·P-RAW 인용 주석.
+- **승격 판정**: **2회 누적**으로 R-NNN 승격 가까움 — 신규 raw read drain 추가 시 EOF guard 강제. 사용자 결정 시 R-002로 정식 환원 (review-code-checklist §"안전성" 항목 승격).
+
+### C-014: orchestrator.run_turn 함수 길이 누적 100 LOC 초과
+
+- **계층**: Knowledge (컨벤션 — 함수 길이)
+- **도메인**: 컨벤션
+- **발견 경로**: review-code (plan 008-ui-polish hot-fix round, P2)
+- **발견 횟수**: 1회 (2026-05-09)
+- **연관 P-id**: (해당 없음)
+- **패턴**: `src/orchestrator.py:run_turn`이 plan 005(patch-apply) + 008(spinner+print_message+stdin_canonical_off) 누적으로 ~140 LOC 도달. code-conventions 100 LOC 초과 권고치 위반. 본 plan 008은 ~25 LOC 추가만 책임이지만 누적 결함.
+- **fix 패턴 (deferred)**: `_call_driver(turn_id, ...) -> AgentResponse | None`, `_call_reviewer(...)` 같은 helper 분리. driver/reviewer 호출 단위가 자연 분리점. 단 본 라운드는 plan 008 hot-fix 영역 외라 deferred — 후속 plan(009 또는 별도)에서 분할.
+- **narrative 동기화**: 본 항목 등재로 추적.
+- **승격 판정**: orchestrator 추가 변경 발생 시 분할 우선 처리 — 함수 길이가 추가 결함 통로 (review-code 가독성 저하 + diff 부담).
+
 ### C-005: orchestrator try/except 튜플 좁음 — fail-fast 누수 광역 패턴
 
 - **계층**: Knowledge (인터페이스 — orchestrator 실패 모드)
@@ -248,8 +303,10 @@
 | **P-STDERR_LOSS** | subprocess `result.stderr` 디스크 미보존 — returncode!=0 분기에서 raw_log엔 stdout만 들어가 디버깅 정보 손실 | ADR-1 (재현성) |
 | **P-INVARIANT** | frozen dataclass protocol invariant(`ts` ISO8601 Z 형식, enum 값 집합 등)가 `__post_init__` self-가드 X — 직접 인스턴스 생성 경로(어댑터·테스트)에서 fail-late | ADR-1 (스키마 무결성) |
 | **P-CLI_GUARD** | argparse `type=int` 단독은 음수/0 의미 오류 미차단 — `--max-turns 0` (빈 루프), `--convergence-streak 0` (즉시 종료) 같은 silent 통과. `_positive_int(min=N)` 헬퍼 패턴 권고 | ADR-4 (메뉴 + CLI 인자) |
+| **P-RAW** | raw stdin / termios 조작 시 다중 결함 통로. ① ISIG 처리 우회 — `os.read`로 byte 직접 read하면 INTR(`\x03`)가 SIGINT 변환 전 폐기 → drain loop가 `\x03` 감지 시 `os.kill(getpid(), SIGINT)` 명시 호출. ② mode 복원 누수 — canonical/ECHO/ISIG bit 조작 시 `try/finally`로 `tcsetattr(TCSAFLUSH, old_attrs) + tcflush(TCIFLUSH)` 복원. ③ thread.start() 실패 mask (C-012) — `tcsetattr` 실패로 thread 미시작 시 finally `join`이 RuntimeError raise → 원본 예외 mask. `is_alive()` guard. ④ EOF byte busy loop (C-013) — `os.read` 빈 bytes 시 select가 ready 반복 → CPU 100%. `if not data: return` guard. ⑤ `(OSError, termios.error)` 양 catch 필수 — `termios.error`는 OSError 하위 클래스 X (`issubclass: False`). ⑥ set 실패 silent skip 통일 — tty이지만 권한·기능 미지원 환경 호환 위해 `tcsetattr` 실패 시 yield + return 패턴 (`stdin_utf8_mode`/`stdin_canonical_off` 일관) | ADR-4 (메뉴 + CLI 인자) |
+| **P-SHIM_PORT** | repo-root bash entrypoint shim에 GNU-only 명령(`readlink -f` 등) 의존 — BSD/macOS 호환 결함. POSIX-portable 대안(`python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))'`) 권장. 향후 새 shim 추가 시 재발 가능 — `python3` 의존은 본 도구 자체 의존이라 부담 0 | ADR-4 (entrypoint), code-conventions §2 (외부 의존성 0) |
 
-위 10가지는 본 도구 운영 초기에 1회씩 발생할 가능성이 있으므로, 발견 시 즉시 R-NNN으로 환원 권고 (1회 발견이라도). 환원된 R-NNN은 "사례" 항목에 P-id 인용 (예: `사례: P-CWD 1차 발생 — phase X에서 ...`).
+위 12가지는 본 도구 운영 초기에 1회씩 발생할 가능성이 있으므로, 발견 시 즉시 R-NNN으로 환원 권고 (1회 발견이라도). 환원된 R-NNN은 "사례" 항목에 P-id 인용 (예: `사례: P-CWD 1차 발생 — phase X에서 ...`).
 
 **P-ENCODING / P-STDERR_LOSS 환원 사례** (Day 2 review-code 1차 발견):
 - `src/agents/codex.py:67-72` + `src/agents/claude.py:69-74` — 두 어댑터 동시 발생 → review-code commit 전 fix:
@@ -274,6 +331,19 @@
 **P-VENDOR 인접 후보** (Day 2 review-code 1차 발견 — `§3 C-003` 후보 적재):
 - `src/agents/base.py:AgentRunner.run()` Protocol docstring 부재 — 어댑터 책임(raw 저장, 빈 응답, AgentAuthError, Meta 14 필드)이 시그니처에 미반영. mock 어댑터(Day 3+) 추가 시 비대칭 누수 통로.
 - fix: deferred — Day 3 mock 작성 시 AgentRunner.run() docstring 보강 + 본 사례를 P-VENDOR로 환원 결정.
+
+**P-VENDOR 환원 사례** (plan 008-ui-polish hot-fix round, 사용자 수동 검증 발견):
+- `src/env_check.py:check_env()` — claude는 `version + auth + doctor` 3 항목, codex는 `version + login` 2 항목 (`/status`는 codex CLI 내부 슬래시 명령이라 외부 subprocess 호출 불가). 점검 항목 비대칭.
+- 부수 결함: `claude doctor`가 capture_output=True 호출 시 tty/pipe 분기로 30s+ hang (사용자 환경 사례: tty 0.5s vs subprocess 12s+ timeout). PTY wrap (~30 LOC) 회피 vs 영구 제외 (~5 LOC) 결정 → 후자 채택.
+- fix: doctor 영구 제외. 양 벤더 모두 `version + auth/login`만 점검 (대칭). 본 도구 책임은 "두 CLI 설치 + 인증 통과"까지 — claude doctor의 connectivity check 등은 claude CLI 자체 진단으로 외부 도구 scope. 사용자가 doctor 결과 필요 시 `claude doctor` 직접 호출 (1회 명령).
+- narrative 동기화: `orchestrator.md §default 메뉴`, `env_check.md`, `cli.py:_print_env_check`.
+- 승격 판정: 신규 어댑터(mock 등) 추가 시 점검 항목 대칭 매트릭스 (`{vendor: [version, auth/login]}`)를 review-code §"인터페이스" 항목으로 정식 승격 검토.
+
+**P-RAW 환원 사례** (plan 008-ui-polish hot-fix round, review-code 1차 발견):
+- `src/ui.py:stdin_canonical_off` — Spinner/긴 작업 동안 stdin 누수 차단 위해 `termios.tcsetattr`로 canonical mode + ECHO off + drain thread(daemon)가 `select+os.read`로 byte 적극 폐기. **결함 통로 1**: drain이 INTR character(`\x03`)도 byte로 폐기 → SIGINT 변환 안 됨 → Ctrl-C 무력화 (사용자 보고 round). **fix**: drain loop가 `b"\x03" in data` 감지 시 `os.kill(os.getpid(), signal.SIGINT)` 명시 호출하여 main thread KeyboardInterrupt 보존. **결함 통로 2**: mode 변경 후 exception/SIGINT 경로에서 mode 복원 누수 위험 → `try/finally`로 `tcsetattr(TCSAFLUSH, old_attrs)` + `tcflush(TCIFLUSH)` 보장. **결함 통로 3**: drain thread leak — `daemon=True` + `stop_event.set() + thread.join(timeout=1)` 명시 정리. 향후 stdin manipulation 코드 추가 시 위 3 결함 통로 재검사 필수 — review-code-checklist §"안전성" 항목으로 승격 검토.
+
+**P-SHIM_PORT 환원 사례** (plan 008-ui-polish hot-fix round, review-code 1차 발견):
+- `dialectic`, `dialectic-skill` repo-root bash shim — `readlink -f "${BASH_SOURCE[0]}"`로 symlink target 해소. GNU coreutils `-f` 옵션 의존이라 BSD/macOS 호환 결함 (silently 빈 출력 가능). fix: `python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}"` POSIX-portable 대안. 본 도구가 이미 python3 의존이라 신규 의존 0. 두 shim 동시 발견 → 향후 entrypoint shim 추가 시 동일 패턴 강제 — `Documentation-Checklist.md §1.1`의 `dialectic`/`dialectic-skill` 행이 매핑 보증.
 
 ### 4.5 신규 패턴 P-id 부여
 
