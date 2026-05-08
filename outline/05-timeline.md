@@ -6,12 +6,12 @@
 
 ## 5.1 4일 타임라인 (실제 가용 시간 기준)
 
-| Day | 가용 | 핵심 작업 |
-|---|---|---|
-| Day 1 | ~3h (심야) | .md 하네스 28파일 작성 ✓ 완료 |
-| Day 2 | ~4.5h (회사 후) | schema + bus + AgentRunner / codex·claude 어댑터, cwd 격리 / patch apply / 최소 turn loop, 환경 점검 |
-| Day 3 | ~4.5h (회사 후) | UI 6지선다 + CLI subcommand / plan·implement 모드 wiring / mock 어댑터 + record 옵션 (선택) |
-| Day 4 | 종일 (마감일) | compare 병렬 + logs subcommand / 풀 데모 + mock 자산 녹음 / 데모 녹화, setup.sh 검증 / Phase 3 자기 검증 → validation / 최종 commit + 제출 zip |
+| Day | 가용 | 핵심 작업 | 진행 |
+|---|---|---|---|
+| Day 1 | ~3h (심야) | .md 하네스 28파일 작성 | ✅ 완료 |
+| Day 2 | ~4.5h (회사 후) | schema + bus + AgentRunner / codex·claude 어댑터, cwd 격리 / 최소 turn loop, 환경 점검 / patch apply (ADR-10) | 🟡 진행 중 — schema/bus/agents/orchestrator core + tests + 환경 점검 ✅ / **patch_apply 미완 (1순위, 005-plan)** |
+| Day 3 | ~4.5h (회사 후) | UI 6지선다 + CLI subcommand / plan·implement 모드 wiring / mock 어댑터 + record 옵션 (선택) / **modify task 신규** (Q23=c) | 🟢 일부 — cli.py 부분 / ui·mock·plan·implement·modify task 미완 |
+| Day 4 | 종일 (마감일) | compare 병렬 + logs subcommand / 풀 데모 (run + plan→implement + **modify**) + mock 자산 녹음 / 데모 녹화, setup.sh 검증 / Phase 3 자기 검증 → validation / 최종 commit + 제출 zip | ⚪ 미진입 |
 
 <details>
 <summary>상세 작업 목록 (펼치기)</summary>
@@ -100,11 +100,12 @@ Day 4 (가용 종일 — 마감일, 가장 큰 작업 시간대)
 
 ## 5.2 위험 요소 (사전 인지)
 
-1. **Day 2 4.5h 안에 어댑터 3개 + bus + schema + orchestrator 최소 loop가 빡빡** → minimum cut(어댑터 1개만)으로 fallback. 핵심 메커니즘은 보장.
+1. **Day 2 가용 시간 안에 어댑터 + bus + schema + orchestrator 최소 loop가 빡빡** → minimum cut(어댑터 1개만)으로 fallback. 핵심 메커니즘은 보장. (현재 ✅ Core·tests 완료, patch_apply만 잔여)
 2. **회사 일정·체력 변동** → Day 2/3 슬립 가능. Day 4 오전이 항상 fallback (mock·compare).
 3. **Codex/Claude 응답 시간 변동성** → 데모 영상 편집 부담. mock 모드가 안전망.
 4. **`pyproject.toml` entry_point 빌드 실수** → 사용자 실행 실패. CI(GitHub Actions로 install + smoke run) 추가 검토 (Day 4 시간 남으면).
 5. **Compare 모드 병렬 시 rate limit** → `--parallel-max 2` 기본, 실제 데모는 mock 재생으로 안전.
+6. **ADR-10 patch_apply 미구현 시 modify 데모 차단** — 005-plan으로 1순위 처리. minimum cut 시 modify 데모 폐기 가능 (run + plan→implement만 시연), but 과제 요구사항(에이전트가 코드 수정 가능)을 절반만 충족하는 셈.
 
 ---
 
@@ -147,39 +148,49 @@ Day 4 (가용 종일 — 마감일, 가장 큰 작업 시간대)
 
 → Day 2 시작 전(또는 시작 시) `commit` 스킬 호출 — 위 28 파일을 의미 단위 ~6-7 commit으로 push.
 
-### Day 2 — 코드 핵심 메커니즘
+### Day 2 — 코드 핵심 메커니즘 (🟡 진행 중)
 
-26. `src/schema.py` — 메시지 dataclass (msg_id·parent_id·turn_id·slot·mode·kind·content·directive·meta)
-27. `src/bus.py` — JSONL append-only writer (flush 강제, append-only 검증)
-28. `src/agents/base.py` — AgentRunner Protocol + AgentResponse
-29. `src/agents/codex.py` — codex exec 호출 + raw stream 파싱
-30. `src/agents/claude.py` — claude -p 호출 + raw stream 파싱
-31. `tests/test_cwd_isolation.py` — 더미 CLAUDE.md 누수 0 검증
-32. `tests/test_bus_append.py` — append-only 위반 검증
-33. `src/orchestrator.py` 최소 turn loop — driver 호출 → reviewer 호출 → JSONL append
-33b. `src/patch_apply.py` — search-replace 블록 추출·적용 (Q22 ✅ A2). orchestrator R2(추출) + R2.6(apply) + R2.7(append patch_applied) 단계에서 호출
-34. 환경 점검 함수 (claude/codex --version + auth status)
+26. ✅ `src/schema.py` — 메시지 dataclass (msg_id·parent_id·turn_id·slot·mode·kind·content·directive·meta)
+27. ✅ `src/bus.py` — JSONL append-only writer (flush 강제, append-only 검증)
+28. ✅ `src/agents/base.py` — AgentRunner Protocol + AgentResponse
+29. ✅ `src/agents/codex.py` — codex exec 호출 + raw stream 파싱
+30. ✅ `src/agents/claude.py` — claude -p 호출 + raw stream 파싱
+31. ✅ `tests/test_cwd_isolation.py` — 더미 CLAUDE.md 누수 0 검증 (+ integration)
+32. ✅ `tests/test_bus_append.py` — append-only 위반 검증
+33. ✅ `src/orchestrator.py` 최소 turn loop — driver 호출 → reviewer 호출 → JSONL append + [CONVERGED] (test_orchestrator_converge.py ✅)
+33b. 🔴 **`src/patch_apply.py` 신규** — search-replace 블록 추출 + path validation(workdir 내부 강제) + all-or-nothing 트랜잭션 + apply_status 반환 (ADR-10). **005-patch-apply-impl plan으로 전환 권장**
+33c. 🔴 **schema 갱신** — `kind=patch_applied` enum + `meta.patches/apply_status/apply_error/files_changed` 필드 추가 (ADR-10 / outline §2.2 cascade)
+33d. 🔴 **orchestrator R2.6/R2.7 통합** — driver proposal append 후 patch_apply 호출 → `kind=patch_applied` append (ADR-10 / outline §2.3)
+33e. 🔴 **tests/test_patch_apply.py** — path traversal 차단 / SEARCH 미일치 / all-or-nothing 롤백 / IO 실패 케이스
+34. ✅ 환경 점검 함수 (claude/codex --version + auth status, src/env_check.py)
 
-→ Day 2 끝나기 전 `sync-docs` + `review-code` 호출, `commit` 스킬 호출.
+→ Day 2 잔여(33b~33e) = ADR-10 코드 구현. 이를 `005-patch-apply-impl` plan으로 묶어 Day 3 첫 작업으로 진입 권장.
 
-### Day 3 — 인터랙티브 + plan/implement
+### Day 3 — ADR-10 코드 + 인터랙티브 + plan/implement
 
-**Day 2 환원 후속 cross-check (Day 3 첫 작업 권고)**:
+**Day 3 첫 작업 (1순위)**: Day 2 잔여 = ADR-10 코드 구현 (33b~33e). `005-patch-apply-impl` plan 작성·실행. 본 작업 없으면 modify 데모 시연 불가능 (Day 4 풀 데모 차단).
+
+**Day 2 환원 후속 cross-check**:
 - `validation.md §3 C-003` (P-VENDOR 어댑터 비대칭 docstring·returncode·env) — mock 어댑터 작업이 새 비대칭 통로인지 검증 후 R-002 정식 환원 결정
-- `validation.md §2 R-001` (P-ENCODING — Day 2에 정식 환원 완료) — mock 어댑터 raw_log 저장 시 `encoding="utf-8"` 자동 catch (review-code-checklist.md §1 P0 행)
+- `validation.md §2 R-001` (P-ENCODING — Day 2 정식 환원 완료) — mock 어댑터 raw_log 저장 시 `encoding="utf-8"` 자동 catch (review-code-checklist.md §1 P0 행)
 
 35. `src/ui.py` — 6지선다 + directive 입력 + 진행 spinner
-36. `src/cli.py` — argparse subcommand + 메뉴 fallback
+36. 🟢 `src/cli.py` — argparse subcommand + 메뉴 fallback (현재 부분 — plan/implement/compare/logs 서브커맨드 wiring 미완)
 37. orchestrator MODE_ROLES dict — 모드↔role 매핑
 38. dialectic plan / implement 모드 (role 매핑만 변경)
 39. `src/agents/mock.py` + `--record` 옵션 (시간 남으면) — **C-003 cross-check 시점**
+39b. `tasks/<modify_task_id>/task.md` 신규 (Q23=c modify 데모 자산. `buggy_rule_review` 승격 또는 `wave_difficulty_v2` 신규)
 
 ### Day 4 — 마감
 
 40. `dialectic compare --parallel` 구현
 41. `dialectic logs` 서브커맨드
 42. mock + --record 마무리 (Day 3 잔여 시)
-43. 풀 데모 실행 → mock 자산 녹음 (tasks/wave_difficulty/recordings/)
+43. 풀 데모 3종 실행 → mock 자산 녹음:
+    - `tasks/wave_difficulty/recordings/` (run 모드, 신규 작성)
+    - plan → implement 흐름 1회
+    - **`tasks/<modify_task_id>/recordings/`** (modify 데모, ADR-10 시연)
+    - compare 1회 (cross-vendor 비교)
 44. README 정돈 + 자동 생성 로직 (SYNTHESIS.md / compare.md / spec.md)
 45. 데모 녹화 (asciinema)
 46. setup.sh 깨끗한 환경 검증
