@@ -38,6 +38,8 @@
 4. resolved_workdir은 매 턴 메시지 `meta.workdir`에 기록 (재현성 검증).
 5. **단위 테스트**: Dialectic-CLI cwd에 더미 `CLAUDE.md`(예: "절대 코드를 제안하지 마라")를 둔 상태에서 어댑터 호출 → raw stream JSONL을 검사해 더미 내용이 prompt에 포함되지 않았음을 확인.
 
+**코드 수정 시 workdir 흐름 (Q22 ✅ A2 / ADR-10)**: `--workdir <path>`가 기존 코드 베이스를 가리키면, driver(implementer)는 워크디렉토리 파일을 **읽고** task/critique에 따라 search-replace 블록을 응답에 포함시켜 **수정 의도**를 표현한다. orchestrator가 §2.3 R2(추출) → R2.6(**all-or-nothing 트랜잭션** — 각 patch FILE 경로를 `Path.resolve()` 정규화 + workdir 내부 검사로 absolute path / `..` traversal / symlink escape 차단, 모든 SEARCH 정확 일치 검색 후 한 번에 REPLACE 치환) → R2.7(`kind=patch_applied` 기록) 흐름으로 파일을 실제 수정. 1개 patch라도 path 외부 또는 SEARCH 미일치 시 전체 롤백, `apply_status=failed`로 기록. 다음 턴 R3 reviewer prompt build 시점엔 변경된 파일(또는 롤백된 원본)이 재주입되어 reviewer가 일관된 상태를 critique. **임시 디렉토리 fallback(`tempfile.mkdtemp`) 시에는 modify 시나리오 사용 불가** — 빈 디렉토리에는 수정 대상 파일이 없어 SEARCH 미일치로 항상 실패. modify task 실행 시 `--workdir <기존 코드 경로>` 명시 필수. ADR-6 cwd 격리(읽기)에 R2.6의 쓰기 경계 검사가 보강.
+
 **효과**:
 - `--workdir` 명시: driver/reviewer가 실제 코드베이스를 읽으며 작업 가능 (본래 사용 시나리오).
 - 미지정 임시 디렉토리: 자동 로드 .md 없는 깨끗한 환경 → 두 층 누수 원천 차단.
@@ -70,6 +72,9 @@ flowchart TD
 - [ ] trade-off를 1개 이상 명시했는가 (어떤 요구사항이 우선되었는가)
 - [ ] 직전 턴 reviewer critique에 대해 항목별 응답 명시 (수용/반박/유보)
 - [ ] 직전 턴 user directive를 반영했는가
+- [ ] (코드 수정 시) search-replace 블록 형식 준수: `FILE: <path>` 헤더 + `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` 마커 정확
+- [ ] (코드 수정 시) SEARCH 블록은 workdir 파일에 정확히 일치하는 텍스트인가 (들여쓰기·공백·줄바꿈 포함, line number 의존 X)
+- [ ] (코드 수정 시) 변경이 기존 함수 시그니처 / 호출 측 인터페이스를 깨지 않는가 (호환성 검증)
 - [ ] 1500자 이내인가
 
 ### spec-reviewer.md (run·implement 모드 reviewer 포지션, Q16 = 충실도 + 일반 결함)
@@ -79,8 +84,9 @@ flowchart TD
 - [ ] driver(implementer) proposal의 어느 부분(섹션/줄)을 가리키는지 인용
 - [ ] 같은 벤더(implementer와 동일 벤더) 시각으로는 놓칠 결함 1개 이상 (cross-vendor 진정성)
 - [ ] 질문은 1개 이내인가
-- [ ] **regression 검사**: 직전 턴 driver fix가 새 P0/P1을 도입했는지 검증 (N≥2일 때만)
+- [ ] **regression 검사**: 직전 턴 driver fix가 새 P0/P1을 도입했는지 검증 (N≥2일 때만). 코드 수정 턴이면 직전 `kind=patch_applied` 메시지의 `apply_status` + `files_changed`를 보고 변경된 파일의 신규 회귀 검사
 - [ ] **수렴 마커**: P0/P1 모두 0이면 응답 마지막 줄에 `[CONVERGED]` 단독 출력
+- [ ] (직전 턴 `kind=patch_applied, apply_status=failed`인 경우) driver의 SEARCH 블록이 왜 미일치였는지 critique에 포함 (LLM 자가 진단)
 - [ ] 1500자 이내인가
 
 ### planner.md (plan 모드 driver 포지션)

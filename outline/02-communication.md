@@ -53,7 +53,8 @@ flowchart TB
   "to":   "broadcast",            // broadcast | implementer | spec-reviewer | planner | plan-reviewer
   "slot": "driver",               // driver | reviewer (한 턴 내 순서; system/user는 null)
   "mode": "run",                  // run | plan | implement | compare
-  "kind": "proposal",             // task | proposal | critique | decision | error | meta
+  "kind": "proposal",            // task | proposal | critique | decision | error | meta | patch_applied
+                                // ↑ patch_applied 추가
   "content": "...",               // 본문 (마크다운/코드 자유)
   "directive": null,              // 사용자가 다음 턴에 주입한 지시문 (kind=decision일 때)
   "meta": {
@@ -67,7 +68,14 @@ flowchart TB
     "cached_input_tokens": 11648,
     "cost_usd": 0.0,
     "latency_ms": 2371,
-    "is_mock": false              // mock 재생 시 true
+    "is_mock": false,             // mock 재생 시 true
+    // === 추가 필드 (search-replace 메커니즘, Q22 ✅ A2) ===
+    "patches": [                  // kind=proposal일 때, driver 응답 텍스트에서 추출한 search-replace 블록을 메시지 append와 동시에 기록 (사후 보강 X — JSONL append-only 원칙 P-JSONL 준수). 응답에 patch 블록 없으면 빈 리스트 [] 또는 null
+      {"file": "wave_difficulty.py", "search": "...", "replace": "..."}
+    ],
+    "apply_status": "ok",         // kind=patch_applied일 때만: "ok" | "failed" (all-or-nothing 채택, partial 폐기)
+    "apply_error": null,          // apply_status=failed 시 사유 (예: "search not found in wave_difficulty.py", "path outside workdir: ../etc/passwd")
+    "files_changed": ["wave_difficulty.py"]  // apply_status=ok 시 적용된 파일 리스트, failed 시 빈 리스트 [] (롤백되어 실 변경 0)
   }
 }
 ```
@@ -78,6 +86,8 @@ flowchart TB
 - `kind=error` → 호출 실패도 메시지로 기록
 - `is_mock` → 재생 vs 실 호출 구분, 정직성 확보
 - `from` (역할) + `slot` (순서) + `mode` (맥락) → 같은 JSONL 한 줄로 "어떤 모드의 어느 포지션에 어떤 역할이 들어갔는가" 즉시 파악
+- `kind=patch_applied` + `meta.apply_status` → search-replace 적용 성공/실패 명시. 실패 시 `apply_error`가 다음 턴 prompt 피드백으로 재주입 → driver 재시도 (Q22 ✅ A2)
+- `meta.patches` (kind=proposal) ↔ `meta.files_changed` (kind=patch_applied) → 의도된 수정과 실제 적용 결과 1:1 추적. **append-only 일관**: orchestrator는 driver subprocess 응답을 받으면 (1) 응답 텍스트에서 patch 블록 추출, (2) `meta.patches`를 채운 단일 `kind=proposal` 메시지를 append, (3) 별도로 `kind=patch_applied` 메시지 append. 기존 메시지의 meta 사후 수정 없음 (P-JSONL)
 
 ## 2.3 한 턴의 라이프사이클 (확정)
 
@@ -86,8 +96,12 @@ flowchart TD
     Start(["Turn N start<br/>mode = run | plan | implement"])
     R0["**0.** Resolve roles by mode (§4.5)<br/>run / implement → implementer + spec-reviewer<br/>plan → planner + plan-reviewer<br/>role_md_path = docs/runtime-docs/roles/&lt;role&gt;.md"]
     R1["**1.** build_prompt(slot=driver)<br/>role_md + task + history + directive(N-1)<br/>(implement 모드는 task 대신 spec.md 본문)"]
-    R2["**2.** subprocess: codex exec --json<br/>cwd = resolved_workdir (§1.3)<br/>append messages.jsonl<br/>kind=proposal, slot=driver"]
-    R3["**3.** build_prompt(slot=reviewer)"]
+    R2["**2.** subprocess: codex exec --json<br/>cwd = resolved_workdir (§1.3)<br/>응답 텍스트에서 patches 추출<br/>append messages.jsonl<br/>kind=proposal, slot=driver, meta.patches=[...]"]
+    R2_6["**2.6.** apply_patches(workdir) — all-or-nothing<br/>각 patch FILE 경로를 workdir 내부로 강제<br/>(Path.resolve() + 외부 경로 차단)<br/>각 patch의 SEARCH를 파일에서<br/>정확 일치 검색 → REPLACE 치환<br/>1개라도 실패 시 전체 롤백"]
+    R2_7{"**2.7.** apply 성공?"}
+    R2_7a["**2.7a.** append kind=patch_applied<br/>apply_status=ok, files_changed=[...]"]
+    R2_7b["**2.7b.** append kind=patch_applied<br/>apply_status=failed, apply_error=...<br/>(다음 턴 R1 prompt에 피드백 주입)"]
+    R3["**3.** build_prompt(slot=reviewer)<br/>변경된 파일 내용 재주입"]
     R4["**4.** subprocess: claude -p --json<br/>append messages.jsonl<br/>kind=critique, slot=reviewer"]
     R4a{"**4a.** reviewer 응답에<br/>[CONVERGED] 마커?"}
     R4b["**4b.** convergence_streak += 1"]
@@ -99,7 +113,10 @@ flowchart TD
     R6{"**6.** decision == end?"}
     Exit([exit])
 
-    Start --> R0 --> R1 --> R2 --> R3 --> R4 --> R4a
+    Start --> R0 --> R1 --> R2 --> R2_6 --> R2_7
+    R2_7 -- yes --> R2_7a --> R3
+    R2_7 -- no --> R2_7b --> R3
+    R3 --> R4 --> R4a
     R4a -- yes --> R4b --> R4d
     R4a -- no --> R4c --> R5
     R4d -- yes --> Exit
@@ -111,6 +128,8 @@ flowchart TD
     R6 -- yes --> Exit
     R6 -- "no — N+=1" --> R1
 ```
+
+**R2.6~R2.7 (Q22 ✅ A2 / ADR-10)**: driver 응답이 코드 수정을 포함하면 텍스트 본문에 `FILE: <path>` 헤더 + `<<<<<<< SEARCH / ======= / >>>>>>> REPLACE` 블록이 들어 있다. R2 단계에서 응답 처리 시 정규식으로 patches를 추출해 `meta.patches`에 함께 기록(append-only 일관, P-JSONL). R2.6는 **all-or-nothing 트랜잭션** — (1) 각 patch의 `FILE` 경로를 `Path.resolve()`로 정규화 + `resolved_workdir` 내부인지 검사, 외부 경로 1개라도 발견 시 즉시 실패(ADR-6 cwd 격리의 쓰기 경계 보강); (2) 각 SEARCH를 workdir 파일에서 정확 일치로 검색, 1개라도 미일치 시 실패; (3) 모든 검사 통과 시 한 번에 REPLACE 치환. R2.7에서 결과를 `kind=patch_applied`로 별도 append (성공: `apply_status=ok, files_changed=[...]` / 실패: `apply_status=failed, apply_error=..., files_changed=[]`). 실패 시 다음 턴 driver R1 prompt에 `apply_error`를 피드백으로 주입 — driver 재시도. R3 reviewer prompt build 시점에는 변경된 파일 내용(또는 롤백된 원본)이 workdir에 반영되어 있어 reviewer는 항상 일관된 상태를 본다.
 
 ## 2.4 프롬프트 빌드 규약 (확정, `docs/runtime-docs/protocol.md`에 명문화)
 
@@ -225,6 +244,9 @@ class AgentRunner(Protocol):
 | 빈 응답 | 사용자 알림, retry 옵션 | `kind=error, content="empty_response"` |
 | 인증 실패 | 즉시 종료, README §환경설정 안내 | `kind=error` 후 SystemExit |
 | MAX_BUDGET 초과 | 즉시 중단 | `kind=meta, content="budget_exceeded"` |
+| Patch SEARCH 미일치 | apply_status=failed 기록, 전체 롤백, 다음 턴 driver R1 prompt에 `apply_error` 피드백 주입 후 재시도 | `kind=patch_applied, apply_status=failed, apply_error="search not found in <file>", files_changed=[]` |
+| Patch FILE 경로가 workdir 외부 (absolute path / `..` traversal / symlink escape) | R2.6 진입 직전 차단, apply_status=failed 기록 (ADR-6 cwd 격리 쓰기 경계) | `kind=patch_applied, apply_status=failed, apply_error="path outside workdir: <file>", files_changed=[]` |
+| Patch REPLACE 적용 중 파일 IO 실패 (권한·디스크) | 이미 부분 적용된 patch 롤백 시도 후 apply_status=failed (best-effort 롤백, 실패 시 stderr 경고 + 사용자 보고) | `kind=patch_applied, apply_status=failed, apply_error="io error on <file>: <errno>", files_changed=[]` |
 
 ## 2.9 수렴 마커 — [CONVERGED]
 

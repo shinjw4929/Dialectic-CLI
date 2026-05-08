@@ -32,10 +32,12 @@
 | **`reward_curve`** — 보상 곡선 시뮬레이션 | 일반·계획 둘 다 | 데이터 기반 검증 narrative와 시너지, "D7 retention 영향" 같은 비기능 요구 명시 가능 |
 | `buggy_rule_review` — 게임 룰 함수의 결함 추정 | 일반 | reviewer의 진가 즉시. spec이 미리 있어야 비교 의미 |
 | `inventory_balance` — 인벤토리 슬롯 / 아이템 가중치 | 계획 → 구현 2단계 | 계획 모드 데모용으로 확장 여지 |
+| **`<modify_task_id>`** (예: `wave_difficulty_v2` 또는 `buggy_rule_review` 승격) — 기존 코드 수정 task | 일반 (run·implement) | search-replace 메커니즘(Q22 ✅) 시연. 신규 작성과 다른 시각 — driver가 기존 코드 읽고 변경 의도 표현, reviewer가 회귀 검증 |
 
 **결정 (잠정)**:
-- **1순위 task = `wave_difficulty`** (Q4 = 잠정 결정). README 기본 데모, mock 녹음 자산도 이 task로 캡처.
-- 2순위 task = `reward_curve` 또는 `buggy_rule_review` 1개. 시간 여유 시 `tasks/`에 추가.
+- 1순위 task = `wave_difficulty` (Q4 = 잠정 결정, 신규 작성 시연). README 기본 데모, mock 녹음 자산도 이 task로 캡처.
+- **2순위 task = modify 전용** (Q23 ✅ c). `buggy_rule_review` 승격 또는 `wave_difficulty_v2` 신규 — 기존 코드 수정 시연. tasks/<modify_task_id>/task.md 본문 작성은 별도 후속 plan.
+- 3순위 task = `reward_curve` 또는 `inventory_balance`. 시간 여유 시 `tasks/`에 추가.
 - compare 모드(§4.5.4)와 결합 — `wave_difficulty`로 두 매핑 비교 데모.
 
 **최종 확정 시점**: Day 1 .md 골격 + `tasks/wave_difficulty/task.md` 본문 작성 후. Day 2 오전 전.
@@ -184,7 +186,7 @@ flowchart TD
 | driver 포지션 역할 | `implementer` |
 | reviewer 포지션 역할 | `spec-reviewer` |
 | 입력 | task.md (또는 사용자 직접 입력 한 줄) |
-| 산출물 | `<workdir>/<file>.py` (또는 task에 따라) |
+| 산출물 | `<workdir>/<file>.py` (신규 작성) **또는** 기존 파일 search-replace 수정 (driver 응답의 patch 블록 → orchestrator R2.6/R2.7 적용 → `meta.files_changed` 기록, Q22 ✅ A2). §2.3 라이프사이클·§2.2 스키마 참조 |
 | 사용자 개입 | 매 턴 6지선다 + directive |
 | 종료 | `e` 키 / `--max-turns` 도달 / **연속 K=2턴 P0/P1=0 + [CONVERGED]** (Q6 = b 확정, default K=2, `--convergence-streak`로 조정) |
 
@@ -239,7 +241,7 @@ def wave_difficulty(wave_index: int) -> dict[str, int | float]: ...
 | driver 포지션 역할 | `implementer` (run과 동일) |
 | reviewer 포지션 역할 | `spec-reviewer` (run과 동일) |
 | 입력 | `<workdir>/specs/<task_id>.md` (계획 모드 산출 또는 사용자 작성) |
-| 산출물 | `<workdir>/<file>.py` 등 코드 |
+| 산출물 | `<workdir>/<file>.py` (신규 작성) **또는** 기존 파일 search-replace 수정 (driver 응답의 patch 블록 → orchestrator R2.6/R2.7 적용 → `meta.files_changed` 기록, Q22 ✅ A2). §2.3 라이프사이클·§2.2 스키마 참조 |
 | 종료 | run과 동일 |
 
 `spec-reviewer.md`는 spec.md를 ground truth로 코드 충실도 검사. P0/P1은 spec 미준수, P2는 일반 결함.
@@ -311,5 +313,6 @@ dialectic compare --task "@tasks/wave_difficulty/task.md" \
 | implement (계획 구현) | spec.md 입력 처리 (task 포지션에 spec 본문 주입) | ~1시간 | Day 3 오전 |
 | compare (비교) | subprocess 병렬 + `compare.md` 자동 생성 | ~3시간 | Day 3 오전 |
 | mock | `mock.py` adapter + `--record` 옵션 | ~3시간 | Day 3 오전 |
+| patch apply (search-replace) | `src/patch_apply.py` — 정규식 추출 + SEARCH 정확 일치 검색 + REPLACE 치환 + `kind=patch_applied` append (R2.6/R2.7 단계) | ~1.5시간 | Day 2 후반 (orchestrator turn loop 직후) |
 
-→ Day 3 오전(~5시간)에 plan + implement + compare + mock 모두 처리 가능. role.md 4개는 Day 1 .md 골격 단계에서 작성 → Day 3에는 코드 wiring만.
+→ Day 3 오전(~5시간)에 plan + implement + compare + mock 모두 처리 가능. patch apply는 Day 2 후반에 통합 — minimum cut 시 Day 3 오전으로 밀려도 modify 데모는 Day 4 풀 데모 시점에 시연 가능. role.md 4개는 Day 1 .md 골격 단계에서 작성 → Day 3에는 코드 wiring만.

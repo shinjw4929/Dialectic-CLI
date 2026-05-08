@@ -40,6 +40,8 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 
 → **양쪽 다 텍스트 in/out 어댑터 작성 가능**. 둘의 출력 스키마 차이는 `src/agents/{codex,claude}.py`의 `parse()` 메서드에서 흡수.
 
+**코드 수정 메커니즘 (Q22 ✅ A2)**: driver 응답에 `FILE: <path>` 헤더 + `<<<<<<< SEARCH / ======= / >>>>>>> REPLACE` 블록(이하 search-replace)을 텍스트로 명시. orchestrator가 정규식 추출 → workdir 파일에서 SEARCH 정확 일치 검색 → REPLACE 치환 → `kind=patch_applied` 메시지 append. CLI 네이티브 도구(write_file 등) 미사용 — 어댑터 추상화 일관 + line number 의존 0으로 LLM 오류 면역. 상세: §2.2 (스키마), §2.3 (R2 patches 추출 + R2.6 apply + R2.7 기록 라이프사이클), §1.4 (implementer 셀프체크).
+
 ---
 
 ## 6. 결정 상태 보드
@@ -66,4 +68,6 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 🟡 Q19 setup.sh 후 dialectic PATH 노출 = 미정 (옵션: a) launcher wrapper(`./dialectic`이 venv python 호출) / b) `pipx install -e .` / c) venv activate 안내 명시). 첫 사용자 진입 SLA에 직결. README §3.1 setup.sh 항목에서 결정 필요 — 03-ux.md:9-15
 🟡 Q20 사전 의존성(Python·claude/codex CLI) 검증 책임 = 미정 (옵션: a) setup.sh가 검증 + 미설치 시 install URL 출력 / b) `dialectic` 실행 시점 환경 점검(§3.2)만 / c) 둘 다). 현재는 (b)만 있어 setup 단계에서 누락 사실을 모름 — 03-ux.md:107-122
 🟡 Q21 tasks/<id>/recordings/ git commit 정책 = 미정 (옵션: a) commit 필수 — 인증 부재 mock fallback 보장 / b) .gitignore + 첫 실행 시 다운로드 / c) 별도 브랜치). Q5·C(인증 부재 자동 mock fallback)의 전제 조건. Day 4 녹음 자산이 repo에 들어가는지 04-§4.4에 못 박혀야 함 — 04-requirements-and-modes.md:111-130, 05-timeline.md:100
+✅ Q22 코드 수정 메커니즘 = A2 (search-replace 블록). LLM 응답에 `FILE: ... <<<<<<< SEARCH / ======= / >>>>>>> REPLACE` 텍스트 → orchestrator parser 적용. line number 의존 0으로 LLM 오류 면역. parser ~30 LOC. 어댑터 텍스트 in/out 추상화 유지 (대안 C: CLI 네이티브 도구 사용 — 추상화 누수 risk로 기각). 적용 — §2.2 메시지 스키마, §2.3 턴 라이프사이클, §1.4 implementer 셀프체크, §4.6 비용
+✅ Q23 데모 task에 modify 시나리오 = c (modify 전용 task 신규 추가). 기존 wave_difficulty(신규 작성) 유지 + tasks/<modify_task_id>/ (예: 기존 룰 함수 결함 수정) 별도 추가. 신규+수정 양쪽 시연. modify task 본문 작성은 별도 후속 plan — 04-§4.3 후보 표에 항목만 명시
 ```
