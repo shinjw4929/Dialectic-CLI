@@ -6,7 +6,7 @@
 
 - **Driver (thesis)** — 한 벤더 (e.g., Codex CLI). 구현·계획 *생성*
 - **Reviewer (antithesis)** — 다른 벤더 (e.g., Claude Code). 충실도 + 일반 결함 *비판*
-- **사용자 (synthesis)** — driver thesis와 reviewer antithesis를 보고 다음 턴 directive 결정. directive는 history에 누적되어 양쪽 prompt §3 HISTORY에 노출. 개입 빈도는 `--interactive` 모드 dial: `end-only`(0회) / `critical`(Ctrl+F 트리거 + 종료 직전) / `full`(매 턴). 형식은 자유 텍스트 또는 단축 메뉴 (a/r/m/i/e/s)
+- **사용자 (synthesis)** — driver thesis와 reviewer antithesis를 보고 다음 턴 directive 결정. directive는 history에 누적되어 양쪽 prompt §3 HISTORY에 노출. 개입 빈도·형식은 `--interactive` 모드 dial: `end-only`(0회) / `critical`(Ctrl+F 트리거 + 종료 직전, iterate prompt Y/c/text 또는 Y/n/text) / `full`(매 턴 강제 6지선다 a/r/m/i/e/s). 상세는 §사용자 개입
 
 같은 모델 self-play의 self-preference bias를 깨려면 **다른 벤더**여야 한다는 thesis 위에 설계.
 
@@ -167,11 +167,11 @@ dialectic run \
 ```
 
 - `--max-turns 5` — 최대 5턴 (`[CONVERGED]` 2턴 누적 시 조기 종료)
-- `--interactive critical` — 매 턴 자동 진행, 종료 직전 1회 prompt + 턴 도중 **Ctrl+F**로 다음 턴 끝 개입
+- `--interactive critical` — 매 턴 자동 진행, 종료 직전 1회 iterate prompt + 턴 도중 **Ctrl+F**로 다음 턴 끝 iterate prompt 트리거 (Y/c/text)
 
 매 턴 흐름:
 ```
-driver 응답 (구현) → reviewer 응답 (비판/CONVERGED) → [critical: Ctrl+F 트리거 시] 6지선다 prompt
+driver 응답 (구현) → reviewer 응답 (비판/CONVERGED) → [critical: Ctrl+F 트리거 시] iterate prompt
                                                   → 다음 턴 history에 누적
 ```
 
@@ -314,10 +314,12 @@ jq -c 'select(.kind == "patch_applied") | {turn:.turn_id, status:.meta.apply_sta
 | 모드 | 매 턴 끝 | 종료 직전 | 트리거 |
 |---|---|---|---|
 | `end-only` | — | — | 자동, prompt 0 |
-| `critical` | Ctrl+F 누른 턴만 6지선다 | `[CONVERGED]` streak 또는 max-turns 도달 시 `prompt_end_or_iterate` (Y/n/text) | Ctrl+F 비동기 |
-| `full` | 매 턴 강제 6지선다 (a/r/m/i/e/s) | `critical`과 동일 | 자동 |
+| `critical` | Ctrl+F 누른 턴만 **iterate prompt** (Y/c/text) | `[CONVERGED]` streak 또는 max-turns 도달 시 **iterate prompt** (Y/n/text) | Ctrl+F 비동기 |
+| `full` | 매 턴 강제 **6지선다** (a/r/m/i/e/s) | `critical`과 동일 — iterate prompt | 자동 |
 
-**6지선다** (full / critical 트리거 분기):
+두 prompt 형식이 다름 — `prompt_decision`(6지선다)은 `full` 전용, `critical`은 `prompt_end_or_iterate`(iterate prompt)만 사용.
+
+**`full` 모드 6지선다** (`prompt_decision`, `src/ui.py`):
 - `a` — accept driver 응답, reviewer 무시
 - `r` — replace 사용자 직권 코드/응답
 - `m` — modify directive 추가
@@ -325,7 +327,13 @@ jq -c 'select(.kind == "patch_applied") | {turn:.turn_id, status:.meta.apply_sta
 - `e` — end 즉시 종료
 - `s` — skip reviewer (다음 턴 driver만)
 
-`MAX_TURNS_HARD_CAP=20` 절대 상한 (i 분기 무한 누적 차단).
+**`critical` / `full` iterate prompt** (`prompt_end_or_iterate`, 종료 직전 공통):
+- `Y` (Enter) — 그대로 진행/종료 (default)
+- `n` — 종료 차단 (CONVERGED/max-turns 도달 시만 노출)
+- `c` — Ctrl+F 실수 트리거 취소 (trigger 단독 분기만)
+- 자유 텍스트 — directive로 누적, max-turns += 1
+
+`MAX_TURNS_HARD_CAP=20` 절대 상한 (i / iterate 분기 무한 누적 차단).
 
 ---
 
@@ -418,12 +426,12 @@ claude/codex가 cwd부터 부모 dir까지 `CLAUDE.md`/`AGENTS.md` auto-discover
 - `docs/runtime-docs/systems/INDEX.md` — 모드별 SSOT (run/plan/implement/compare)
 
 개발 사양 (A 층):
-- `docs/dev-docs/architecture.md` — 왜 dialectic, 4계층 매핑, ADR 8개+
+- `docs/dev-docs/architecture.md` — 왜 dialectic, 4계층 매핑, ADR 10개
 - `docs/dev-docs/systems/INDEX.md` — 모듈별 SSOT (orchestrator/agents/jsonl-bus/cwd-isolation/env-check/ui/patch-apply)
 - `docs/dev-docs/code-conventions.md` — Python 규칙
 - `docs/dev-docs/Documentation-Checklist.md` — 변경 → .md 매핑
-- `docs/dev-docs/validation.md` — 결함 → 규칙 환원 (P-id 표)
-- `outline/` — 결정 흐름 (Q1~Q17)
+- `docs/dev-docs/validation.md` — 결함 → 규칙 환원 (R-001~R-003 정식 + P-id 표)
+- `outline/` — 결정 흐름 (Q1~Q23)
 
 ---
 
@@ -440,9 +448,3 @@ dialectic-skill --show review-code          # SKILL.md 본문 출력
 ```
 
 `dialectic-skill <workflow>`는 `docs/dev-docs/codex-compat.md` 정책의 `$<workflow>` 명시 호출 문구를 출력. 출력을 Codex 대화에 주입하면 canonical `.claude/skills/<workflow>/SKILL.md` 절차가 Codex 방식으로 적용된다.
-
----
-
-## 라이선스
-
-MIT (예정)
