@@ -22,7 +22,8 @@ flowchart LR
     P011[plan 011<br/>menu-expansion<br/>completed]
     P012[plan 012<br/>model-config]
     P013[plan 013<br/>spec-autosave<br/>completed]
-    P014[plan 014<br/>implement-spec<br/>backlog]
+    P014[plan 014<br/>implement-spec<br/>completed]
+    P015[plan 015<br/>trigger-race-fix<br/>completed]
 
     P008 ==> P009
     P008 --> P010
@@ -32,6 +33,7 @@ flowchart LR
     P011 --> P013
     P010 --> P013
     P013 --> P014
+    P011 --> P015
 ```
 
 - plan 008·007은 본 문서 범위 외 (각각 active / mock 어댑터)
@@ -366,7 +368,33 @@ A → B 직렬 (B가 A의 helper 2개 import).
 
 - plan 011 완료 (메뉴 wiring) — driver/reviewer 모드 분기 SSOT 활용
 - plan 010 완료 (workdir default + session_ts 격리) — line 위치·default 흐름 narrative 정합
-- plan 014 (`dialectic implement --spec`) — 본 plan 산출 spec.md 소비자 (사용자 결정 분리, backlog)
+- plan 014 (✓ completed) — 본 plan 산출 spec.md 소비자 wiring (아래 섹션 참조)
+
+---
+
+## plan 014-implement-spec (✓ completed → `plan/014-implement-spec/`)
+
+### 의도
+
+`dialectic implement --spec <path>` (또는 `dialectic run --mode implement --spec <path>`) wiring — plan 013 산출 `<workdir>/specs/<slug>.md`를 implement 모드 입력으로 소비. driver=implementer / reviewer=spec-reviewer 1턴 라이프사이클 + 메뉴 단계 2 implement 분기 활성 + `apply_patches` 신규 파일 생성 분기 보강 (`architecture.md:137` ADR-10 narrative "신규 파일·기존 파일 둘 다 동일 흐름" wiring 충족) + `protocol.md §5 :282-284` "implement 모드는 task 대신 spec.md 본문 주입" narrative wiring 충족.
+
+### Phase 산출 요약
+
+- **Phase A** — `src/cli.py` `--spec` 인자 + `dialectic implement` alias subparser(`:92-122`) + `_input_spec_path` helper(`:285-326`) + `_input_mode` implement 활성(`:251-274`) + `_input_confirm` spec echo + 메뉴 단계 3 분기(`:497-503`)
+- **Phase B** — `src/orchestrator.py:766-784` `run_session` mode==implement 분기 (None/missing-or-directory/UnicodeDecodeError/whitespace-only SystemExit + spec body → `args.task` substitution → `_task_msg`/`build_prompt §2 TASK` 일관 주입, 별도 build_prompt 분기 X)
+- **Phase D** — `src/patch_apply.py` 신규 파일 분기 (`SEARCH=""` + not exists → write_text + parent mkdir + rollback unlink) + `roles/implementer.md:80-81` 셀프체크 + `systems/patch-apply.md` narrative
+- **Phase C** — alias 동등 동작 argparse 단위 검증 (`tests/test_implement_spec.py::test_implement_alias_argparse_equivalence` 외 2건) + 문서 cascade 5건 (`runtime-docs/systems/INDEX.md` implement 행 / `dev-docs/systems/orchestrator.md` `run_session` 분기 narrative + cli 표 / `Documentation-Checklist.md §1.1` 신규 매핑 행 / `README.md` 〈현재 동작 모드〉 implement 활성 narrative / 본 entry)
+
+### 의존
+
+- plan 013 완료 — 본 plan은 plan 013 산출 `<workdir>/specs/<slug>.md`의 소비자 (`dialectic plan` → `dialectic implement --spec <위 경로>` chaining)
+- plan 011 완료 — 메뉴 단계 2 mode 선택의 implement 분기를 active 활용
+- plan 005 산출 — `extract_patches`/`apply_patches` 흐름 (Phase D는 신규 파일 분기 추가만, 호출 path 무관)
+
+### deferred
+
+- **dijkstra 실 시연** — 사용자 명시 후 별도 진행 (API 비용). `tasks/implement-dijkstra/task.md`로 plan 모드 1턴 → spec.md 생성 → implement 모드 1턴 → workdir에 dijkstra.py 생성 (chaining 통합 검증)
+- **plan→implement chaining mock 통합 테스트** — 사용자 결정으로 본 plan 범위 외 (Phase A·B·C·D 단위 단언 + 명시 호출 시연으로 충족)
 
 ---
 
@@ -436,6 +464,41 @@ C · meta.model_requested 정직성 강화         ~15 LOC
 - `~/.codex/config.toml` — user config (model = "gpt-5.2", model_reasoning_effort = "low")
 - codex CLI: `-m, --model <MODEL>` / `-c model="..."` / `-c model_reasoning_effort="low"`
 - claude CLI: `--model <model>` (haiku/sonnet/opus alias 또는 full ID)
+
+---
+
+## plan 015-trigger-race-fix (✓ completed → `plan/completed/015-trigger-race-fix/`)
+
+### 의도
+
+Bug 1 (TriggerListener __exit__ → prompt readline byte 절도 race, validation.md C-015) 정공법 fix. 에이전트 응답 생략 reproduction harness 구축 + 사용자 반복 시연 cycle.
+
+### Phase 분할
+
+A · repro harness (자동 pytest pty + 수동 standalone) → B · 가설 검증 cycle (skip 결정 — plan 011 4차 hot fix = 5 cycle 등가 광역 패턴) → C · 정공법 메커니즘 채택 (① main thread polling + thread-safe Queue) → D · cleanup + cascade.
+
+### 채택 메커니즘 (Phase C ① queue 부분 fix — race 잔존)
+
+**① main thread polling + thread-safe `queue.Queue(maxsize=1024)` + `flush_stdin` 제거 (2개 fix)**:
+- listener thread `os.read(fd, 1)` 직후 `_byte_queue.put_nowait(ch_bytes)` — byte 절도 후 queue 보존
+- TRIGGER_BYTE 검사 + Event set는 listener thread 내부 보존 (실시간 stderr 피드백 유지)
+- `__exit__` finally: thread join → queue drain loop (잔존 byte 폐기) → tcsetattr TCSAFLUSH + tcflush TCIFLUSH (kernel queue 동시 비움)
+- queue forward 금지 — 사용자 입력에 trigger byte(0x06) prefix 누수 차단
+- `_read_line_for_prompt` `flush_stdin(grace_period_s=0.05)` 호출 제거 — prompt 직후 50ms 사용자 byte drain race source 차단
+- 추가 surgical fix 2개(NONBLOCK fd, dup2 to /dev/null)는 race 차단 X 또는 부작용 발생 → revert
+
+### 검증
+
+- 자동: pytest 신규 2 케이스 + 회귀 0 (170 passed, 3 skipped — PTY harness 동결)
+- 수동 (tools/repro_listener.py, 에이전트 호출 0): 4 effective cycle race 0/4 (한글 directive · 'c' · 'y' 모두 정상 도달)
+- 실 dialectic CLI 시연 (codex/claude subprocess 30초+ 후 prompt, WSL2 PTY): **race 재현** — listener thread `os.read` blocking 갇힘 + cooked mode 한 줄 분할 절도. 패턴: prompt 첫 입력 빈 줄 처리 → INVALID_RETRY → 두 번째 입력 정상
+- validation.md C-015 status update — race 부분 완화, 잔존 환경 한계 + R-NNN 환원 보류 narrative
+
+### 후행 영향
+
+- review-code-checklist §1 안전성에 raw mode listener queue 패턴 검사 항목 추가 권고 (deferred — 별도 sync-docs cascade)
+- plan 007 mock 어댑터 진입 시 stdin 처리 X 라 영향 0
+- **plan 016 (또는 후속)** — listener thread 폐기 + main thread polling 또는 signal-based trigger architecture 재설계 검토 (R-NNN 환원의 전제조건). 사용자 워크어라운드(첫 입력 빈 줄 처리 시 두 번째 입력) 잠정 운용
 
 ---
 
