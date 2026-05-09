@@ -58,12 +58,13 @@ link_if_safe() {
   echo "✓ symlink: $link → $target"
 }
 
-if [[ ":$PATH:" == *":$LOCAL_BIN:"* ]] && [ -d "$LOCAL_BIN" ]; then
-  link_if_safe dialectic
-  link_if_safe dialectic-skill
-else
-  echo "ℹ ~/.local/bin이 PATH에 없음 — 어디서나 호출하려면 PATH 추가 또는 alias 설정 권장"
-  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\"  또는  alias dialectic='$REPO_DIR/dialectic'"
+mkdir -p "$LOCAL_BIN"
+link_if_safe dialectic
+link_if_safe dialectic-skill
+
+if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
+  echo "ℹ ~/.local/bin이 PATH에 없음 — 다음을 ~/.bashrc 또는 ~/.zshrc에 추가하면 어디서나 호출 가능 (symlink는 이미 생성됨):"
+  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
 fi
 
 # 5. 외부 CLI 점검 (안내만, 실패해도 진행 — 사용 시점에 인증 필요)
@@ -89,5 +90,5 @@ echo "    dialectic run --task \"JSON 파싱 함수 작성\" --max-turns 3"
 echo "    dialectic-skill sync-docs"
 echo ""
 echo "  데모 시나리오: tasks/implement-dijkstra/task.md (1차 task 본문 paste 후 critical 모드)"
-echo "  (~/.local/bin symlink 미설정 시: cd 후 \`./dialectic\` 또는 \`source .venv/bin/activate\`)"
+echo "  (symlink 생성 실패 fallback: cd 후 \`./dialectic\` 또는 \`source .venv/bin/activate\`)"
 echo ""

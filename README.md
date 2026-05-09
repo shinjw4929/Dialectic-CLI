@@ -91,7 +91,7 @@ cd Dialectic-CLI
 `setup.sh`가 수행:
 - Python 3.10+ 확인
 - `.venv/` 생성 + `pip install -e .` (editable)
-- `~/.local/bin/{dialectic,dialectic-skill}` symlink (PATH 포함 시) — 어디서나 호출, venv activate 불필요
+- `~/.local/bin/{dialectic,dialectic-skill}` symlink (디렉토리 자동 생성) — 어디서나 호출, venv activate 불필요. PATH 미포함 시 안내만 출력
 - vendor CLI 설치 여부 안내
 
 `~/.local/bin`이 PATH에 없으면:
