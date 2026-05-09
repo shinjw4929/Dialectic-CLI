@@ -16,11 +16,13 @@ import dataclasses
 import itertools
 import json
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 from .agents.base import ERROR_CONTENT_TRUNCATE_CHARS, AgentAuthError, AgentRunner
@@ -29,7 +31,16 @@ from .agents.codex import CodexRunner
 from .bus import Bus
 from .patch_apply import apply_patches, extract_patches
 from .schema import Message, Meta
-from .ui import ROLE_LABEL_KO, VENDOR_LABEL, Spinner, print_message, stdin_canonical_off
+from .ui import (
+    ROLE_LABEL_KO,
+    VENDOR_LABEL,
+    Spinner,
+    TriggerListener,
+    print_message,
+    prompt_decision,
+    prompt_end_or_iterate,
+    stdin_canonical_off,
+)
 
 MODE_ROLES = {
     "run":       {"driver": "implementer", "reviewer": "spec-reviewer"},
@@ -52,6 +63,14 @@ META_SEQ_SENTINEL = 99
 # proposal(1) → reviewer(2) → patch_applied(98)로 reviewer 뒤에 노출 (의도된 비대칭,
 # 01-plan §5.6). 별도 상수로 의미 단위 명확.
 META_PATCH_APPLIED_SEQ = 98
+
+# decision 메시지의 seq_in_turn — proposal=1, critique=2, decision=97,
+# patch_applied=98, meta=99 직렬화 순. 시간 순 ≠ 직렬화 순 (ADR-10 의도된 비대칭) —
+# 사용자 직권 지시가 patch 내역보다 먼저 driver 다음 턴 prompt에 노출.
+META_DECISION_SEQ = 97
+
+# critical·full 모드 i 분기 무한 누적 방지 절대 상한 (모듈 상수, paste).
+MAX_TURNS_HARD_CAP = 20
 
 # subprocess 호출 timeout (code-conventions §3 — 명시 필수, 무한대 차단).
 DEFAULT_TIMEOUT_S = 300
@@ -91,9 +110,20 @@ def _detect_converged(text: str) -> bool:
     return last.strip() == "[CONVERGED]"
 
 
-def _serialize_history(history: list[Message]) -> str:
-    """protocol.md §5 (`:246-260`) 형식. turn_id>=1만 포함 (turn_id=0 task는 §2 TASK 별도)."""
+def _serialize_history(
+    history: list[Message],
+    *,
+    exclude_reviewer: bool = False,
+) -> str:
+    """protocol.md §5 (`:246-260`) 형식. turn_id>=1만 포함 (turn_id=0 task는 §2 TASK 별도).
+
+    exclude_reviewer=True 시 m.kind == "critique" 메시지 제외 — full a 분기 시 driver
+    응답 채택 후 다음 턴 prompt에서 reviewer critique를 history에서 제외하는 용도.
+    default False라 기존 호출자 회귀 0.
+    """
     body = [m for m in history if m.turn_id >= 1]
+    if exclude_reviewer:
+        body = [m for m in body if m.kind != "critique"]
     if not body:
         return "(이전 턴 없음)"
     body = sorted(body, key=lambda m: (m.turn_id, m.seq_in_turn))
@@ -112,15 +142,25 @@ def _serialize_history(history: list[Message]) -> str:
     return "\n".join(out).rstrip()
 
 
-def build_prompt(role: str, task: str, history: list[Message], directive: str | None) -> str:
+def build_prompt(
+    role: str,
+    task: str,
+    history: list[Message],
+    directive: str | None,
+    *,
+    exclude_reviewer: bool = False,
+) -> str:
     """4섹션 prompt — protocol.md §5 (`:233-271`).
 
     role-specific instructions는 ROLE.md 본문에 이미 있으므로 prompt §4는 단순 재호출 +
     directive 강조 (protocol.md §5 line 257 — '당신의 역할({role})로 다음을 수행:').
+
+    exclude_reviewer=True 시 _serialize_history에 전달 → 다음 턴 driver prompt에서
+    reviewer critique 제외 (full a 분기 대응). default False 회귀 0.
     """
     role_md = ROLE_FILE[role].read_text(encoding="utf-8")
     # _serialize_history가 빈 body → "(이전 턴 없음)" 반환 — 외부 가드 중복 제거.
-    history_md = _serialize_history(history)
+    history_md = _serialize_history(history, exclude_reviewer=exclude_reviewer)
     your_turn = (
         f"당신의 역할({role})로 위 ROLE 섹션의 책임을 수행하십시오. "
         f"§ '응답 전 셀프체크'의 모든 항목을 통과해야 응답이 유효합니다.\n\n"
@@ -296,6 +336,98 @@ def _patch_applied_msg(
     )
 
 
+def _decision_msg(
+    turn_id: int,
+    key: str,
+    directive: str | None,
+    workdir: Path,
+    mode: str,
+    *,
+    parent_id: str | None,
+) -> Message:
+    """decision kind 메시지 helper (protocol.md:238 SSOT 재사용).
+
+    필드:
+      msg_id     = uuid4()
+      from_      = "user", to = "implementer", slot = None
+      seq_in_turn= META_DECISION_SEQ (=97). 직렬화 순: proposal=1 → critique=2 →
+                   decision=97 → patch_applied=98 → meta=99. 시간 순 ≠ 직렬화 순,
+                   ADR-10 의도된 비대칭 — `_serialize_history` sort 정합. 사용자 직권
+                   지시가 patch 내역보다 먼저 driver 다음 턴 prompt에 노출.
+      kind       = "decision" (재사용 — `user_synthesis` 신설 폐기, schema kind 표 유지)
+      content    = key (outline §3.3 a/r/m/i/e/s)
+      directive  = directive 본문 또는 None
+      meta       = vendor="user", agent_cli="user", model=None, tokens 4종 0,
+                   cost_usd=None, latency_ms=0, is_mock=False
+    """
+    return Message(
+        ts=_now_ts(),
+        msg_id=str(uuid4()),
+        parent_id=parent_id,
+        turn_id=turn_id,
+        seq_in_turn=META_DECISION_SEQ,
+        from_="user",
+        to="implementer",
+        slot=None,
+        mode=mode,
+        kind="decision",
+        content=key,
+        directive=directive,
+        meta=Meta(
+            vendor="user",
+            agent_cli="user",
+            model=None,
+            session_id=None,
+            thread_id=None,
+            input_tokens=0,
+            output_tokens=0,
+            cached_input_tokens=0,
+            reasoning_output_tokens=0,
+            cost_usd=None,
+            latency_ms=0,
+            is_mock=False,
+            workdir=str(workdir),
+        ),
+    )
+
+
+def _last_critique_msg_id(history: list[Message]) -> str | None:
+    """history 역방향 탐색 — 마지막 critique kind msg_id (없으면 None)."""
+    for m in reversed(history):
+        if m.kind == "critique":
+            return m.msg_id
+    return None
+
+
+def _last_proposal_msg_id(history: list[Message]) -> str | None:
+    """history 역방향 탐색 — 마지막 proposal kind msg_id (full s 분기 fallback).
+
+    skip_reviewer 직후 critique 부재 → parent_id를 proposal로 fallback.
+    """
+    for m in reversed(history):
+        if m.kind == "proposal":
+            return m.msg_id
+    return None
+
+
+def _setup_sigint_handler(listener: TriggerListener) -> Callable | int | None:
+    """SIGINT 핸들러 등록 (phase-b R3 hand-off).
+
+    abort 시 listener __exit__로 raw mode 복원 + sys.exit(130) (POSIX SIGINT 표준 종료
+    코드). 반환값 = `signal.signal` 시그니처상 Callable | int (SIG_DFL/SIG_IGN sentinel)
+    | None (핸들러 부재). caller가 with 블록 종료 시 `signal.signal(SIGINT, prev)` 복원.
+    """
+
+    def _handler(signum: int, frame: object) -> None:
+        try:
+            listener.__exit__(None, None, None)
+        finally:
+            sys.exit(130)
+
+    prev = signal.signal(signal.SIGINT, _handler)
+    return prev
+
+
 def _resolve_runner(name: str) -> AgentRunner:
     """codex/claude 어댑터 인스턴스 반환. mock은 Day 3+. invalid name은 친절 ValueError."""
     runners: dict[str, AgentRunner] = {"codex": CodexRunner(), "claude": ClaudeRunner()}
@@ -317,7 +449,15 @@ def run_turn(
     task: str,
     workdir: Path,
     sessions_dir: Path,
+    skip_reviewer: bool = False,
+    exclude_reviewer_history: bool = False,
 ) -> None:
+    """기존 driver→reviewer 1턴 라이프사이클.
+
+    skip_reviewer=True (full s 분기) → reviewer 호출 skip. critique 메시지 미생성.
+    exclude_reviewer_history=True (full a 분기) → driver build_prompt 호출 시
+    history에서 critique 제외. default False 회귀 0.
+    """
     # 본 turn 시작 시 history snapshot — turn_id < N 메시지만. driver는 본 history,
     # reviewer는 history + 본 turn proposal (driver 응답 후 bus 재read).
     # protocol.md §5 line 250 "turn_id < N" 명세는 driver 한정 — reviewer는 turn N의
@@ -340,7 +480,10 @@ def run_turn(
         # stdin_canonical_off + Spinner: 호출 동안 사용자 키 누름이 다음 prompt에 누수되는
         # 결함 차단 (line discipline off + drain thread + INTR 보존). 자세히는 src/ui.py.
         with stdin_canonical_off(), Spinner(driver_spinner_msg):
-            p1 = build_prompt(driver_role, task, history, directive=None)
+            p1 = build_prompt(
+                driver_role, task, history, directive=None,
+                exclude_reviewer=exclude_reviewer_history,
+            )
             resp1 = driver_runner.run(p1, raw_log_path=raw1, timeout_s=DEFAULT_TIMEOUT_S, workdir=workdir)
     except (
         subprocess.TimeoutExpired, json.JSONDecodeError, AgentAuthError,
@@ -400,6 +543,11 @@ def run_turn(
         ))
 
     # ---- reviewer ----
+    # full s 분기 시 skip_reviewer=True → reviewer 호출 skip + critique 미생성.
+    # 다음 턴 parent_id는 _last_proposal_msg_id fallback (run_session에서 분기).
+    if skip_reviewer:
+        return
+
     reviewer_role = roles["reviewer"]
     raw2 = sessions_dir / f"{turn_id}-reviewer-{uuid4().hex[:8]}.jsonl"
     reviewer_label = ROLE_LABEL_KO.get(reviewer_role, reviewer_role)
@@ -485,6 +633,27 @@ def run_session(args: argparse.Namespace) -> int:
         )
         K = 1
 
+    # 초기값 가드 (P1-ε): args.max_turns가 hard cap 초과 시 clamp + stderr 경고.
+    # critical/full i 분기 동적 +1 누적 안전망과 별개로 사용자 입력 시점 차단.
+    max_turns_runtime = min(args.max_turns, MAX_TURNS_HARD_CAP)
+    if args.max_turns > MAX_TURNS_HARD_CAP:
+        sys.stderr.write(
+            f"--max-turns ({args.max_turns}) > MAX_TURNS_HARD_CAP "
+            f"({MAX_TURNS_HARD_CAP}) — clamped\n"
+        )
+
+    # mock 모드 fallback (P-MOCK 괄호 명시): mock 어댑터는 raw 키 stdin 처리 X →
+    # critical/full 잠재 prompt와 비호환. 현재 _resolve_runner에 mock 미등록 (plan 007
+    # deferred)이라 vacuous narrative — `args.driver=="mock"` 자체가 ValueError raise
+    # 시점. plan 007 진입 후 활성.
+    mock_in_use = (args.driver == "mock") or (args.reviewer == "mock")
+    interactive_in = args.interactive in ("critical", "full")
+    if mock_in_use and interactive_in:
+        sys.stderr.write(
+            "mock 모드는 critical/full 비호환 — end-only 강제 (P-MOCK)\n"
+        )
+        args.interactive = "end-only"
+
     try:
         logs_dir = workdir / "logs"
         sessions_dir = logs_dir / "sessions"
@@ -497,49 +666,30 @@ def run_session(args: argparse.Namespace) -> int:
 
         # outline/02 §2.9: reviewer [CONVERGED] streak K 도달 시 auto_end_converged.
         streak = 0
-        for turn in range(1, args.max_turns + 1):
-            run_turn(
-                turn, args.mode,
-                driver_runner=driver_runner, reviewer_runner=reviewer_runner,
-                bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
-            )
-            history_after = bus.read_all()
-            # protocol.md §9 정합: 인증 실패 / 빈 응답 / parse 실패 등 error 발견 시 즉시 종료.
-            # retry 1회 명세는 Day 3+ deferred (사용자 directive 기반 retry 정책 결정 후).
-            # max_turns↑ 시 fatal error가 max-turns까지 반복되며 token 소모 차단.
-            last_msg = history_after[-1]
-            if last_msg.kind == "error" and last_msg.turn_id == turn:
-                bus.append(_meta_msg(
-                    turn, f"auto-end (error: {last_msg.content[:80]})", workdir, args.mode,
-                    parent_id=last_msg.msg_id,
-                ))
-                return 0
-            last_critique = next(
-                (m for m in reversed(history_after)
-                 if m.kind == "critique" and m.turn_id == turn),
-                None,
-            )
-            if last_critique is None:
-                streak = 0
-                continue
-            if last_critique.meta.convergence_streak == 1:
-                streak += 1
-                if streak >= K:
-                    bus.append(_meta_msg(
-                        turn, "auto_end_converged", workdir, args.mode,
-                        parent_id=last_critique.msg_id, convergence_streak=K,
-                    ))
-                    return 0
-            else:
-                streak = 0
 
-        # max-turns 도달 fallthrough.
-        last = bus.read_all()[-1]
-        bus.append(_meta_msg(
-            args.max_turns, "auto-end (max-turns reached)", workdir, args.mode,
-            parent_id=last.msg_id,
-        ))
-        return 0
+        if args.interactive == "end-only":
+            return _run_session_end_only(
+                args, K, max_turns_runtime, bus,
+                driver_runner, reviewer_runner, workdir, sessions_dir,
+            )
+
+        if args.interactive == "critical":
+            return _run_session_critical(
+                args, K, max_turns_runtime, bus,
+                driver_runner, reviewer_runner, workdir, sessions_dir,
+            )
+
+        if args.interactive == "full":
+            return _run_session_full(
+                args, K, max_turns_runtime, bus,
+                driver_runner, reviewer_runner, workdir, sessions_dir,
+            )
+
+        # 알 수 없는 interactive 값 — argparse choices가 차단하지만 방어.
+        raise ValueError(
+            f"unknown --interactive: {args.interactive!r} — "
+            f"expected one of ('end-only', 'critical', 'full')"
+        )
     finally:
         if cleanup:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -550,3 +700,276 @@ def run_session(args: argparse.Namespace) -> int:
                 f"  messages.jsonl: {workdir}/logs/messages.jsonl\n"
                 f"  raw streams:    {workdir}/logs/sessions/\n"
             )
+
+
+def _run_session_end_only(
+    args: argparse.Namespace,
+    K: int,
+    max_turns_runtime: int,
+    bus: Bus,
+    driver_runner: AgentRunner,
+    reviewer_runner: AgentRunner,
+    workdir: Path,
+    sessions_dir: Path,
+) -> int:
+    """end-only mode — 자동 dialectic, 사용자 prompt 0. AS-IS for-range 패턴 유지."""
+    streak = 0
+    for turn in range(1, max_turns_runtime + 1):
+        run_turn(
+            turn, args.mode,
+            driver_runner=driver_runner, reviewer_runner=reviewer_runner,
+            bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
+        )
+        history_after = bus.read_all()
+        last_msg = history_after[-1]
+        if last_msg.kind == "error" and last_msg.turn_id == turn:
+            bus.append(_meta_msg(
+                turn, f"auto-end (error: {last_msg.content[:80]})", workdir, args.mode,
+                parent_id=last_msg.msg_id,
+            ))
+            return 0
+        last_critique = next(
+            (m for m in reversed(history_after)
+             if m.kind == "critique" and m.turn_id == turn),
+            None,
+        )
+        if last_critique is None:
+            streak = 0
+            continue
+        if last_critique.meta.convergence_streak == 1:
+            streak += 1
+            if streak >= K:
+                bus.append(_meta_msg(
+                    turn, "auto_end_converged", workdir, args.mode,
+                    parent_id=last_critique.msg_id, convergence_streak=K,
+                ))
+                return 0
+        else:
+            streak = 0
+
+    # max-turns 도달 fallthrough.
+    last = bus.read_all()[-1]
+    bus.append(_meta_msg(
+        max_turns_runtime, "auto-end (max-turns reached)", workdir, args.mode,
+        parent_id=last.msg_id,
+    ))
+    return 0
+
+
+def _run_session_critical(
+    args: argparse.Namespace,
+    K: int,
+    max_turns_runtime: int,
+    bus: Bus,
+    driver_runner: AgentRunner,
+    reviewer_runner: AgentRunner,
+    workdir: Path,
+    sessions_dir: Path,
+) -> int:
+    """critical mode — 매 turn cleanup-restart pattern.
+
+    매 turn 새 TriggerListener 인스턴스 (with 컨텍스트). __exit__ 시 thread 종료 +
+    raw mode 복원 → prompt 진행 (canonical mode이라 사용자 byte 절도 race 0).
+    idle window (prompt 끝 ~ 다음 turn listener 시작)는 "Ctrl+F 2회 연타" narrative cover.
+
+    α 정책: trigger/converged/last_turn 모든 i = +1 단순 누적.
+    c 분기: 실수 trigger 취소 (trigger 단독만 c 노출).
+    옵션 분기:
+      trigger 단독 → Y/c/텍스트 (n 미노출)
+      CONVERGED/last_turn → Y/n/텍스트 (c 미노출)
+    """
+    streak = 0
+    turn = 1
+    while turn <= max_turns_runtime:
+        with TriggerListener() as trigger:
+            prev_handler = _setup_sigint_handler(trigger)
+            try:
+                run_turn(
+                    turn, args.mode,
+                    driver_runner=driver_runner, reviewer_runner=reviewer_runner,
+                    bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
+                )
+            finally:
+                signal.signal(signal.SIGINT, prev_handler)
+        # listener __exit__ — raw mode 복원 + thread 종료. 이후 canonical mode이라
+        # 사용자 byte 절도 race 0. trigger.is_set()은 이미 발동된 상태로 보존됨.
+        history_after = bus.read_all()
+        last_msg = history_after[-1]
+        if last_msg.kind == "error" and last_msg.turn_id == turn:
+            bus.append(_meta_msg(
+                turn, f"auto-end (error: {last_msg.content[:80]})", workdir, args.mode,
+                parent_id=last_msg.msg_id,
+            ))
+            return 0
+        last_critique = next(
+            (m for m in reversed(history_after)
+             if m.kind == "critique" and m.turn_id == turn),
+            None,
+        )
+        converged_now = False
+        if last_critique is not None:
+            if last_critique.meta.convergence_streak == 1:
+                streak += 1
+                if streak >= K:
+                    converged_now = True
+            else:
+                streak = 0
+        else:
+            streak = 0
+
+        last_turn_now = (turn == max_turns_runtime)
+        triggered = trigger.is_set()
+        should_prompt = triggered or converged_now or last_turn_now
+        if should_prompt:
+            if converged_now:
+                reason = f"[CONVERGED] streak {K} 도달"
+            elif last_turn_now:
+                reason = f"max-turns {max_turns_runtime} 도달"
+            else:
+                reason = "Ctrl+F 트리거"
+            allow_continue = triggered and not (converged_now or last_turn_now)
+            allow_iterate_no_directive = converged_now or last_turn_now
+            key, directive = prompt_end_or_iterate(
+                turn_id=turn, reason=reason,
+                allow_continue=allow_continue,
+                allow_iterate_no_directive=allow_iterate_no_directive,
+            )
+            parent_id = _last_critique_msg_id(history_after) or history_after[-1].msg_id
+            if key == "e":
+                bus.append(_meta_msg(
+                    turn, "auto_end_user", workdir, args.mode,
+                    parent_id=parent_id,
+                ))
+                return 0
+            if key == "c":
+                # 실수 trigger 취소 — max_turns 변경 X, decision append X.
+                # converged 무한 루프 차단 위해 streak = 0.
+                streak = 0
+            if key == "i":
+                bus.append(_decision_msg(
+                    turn, "i", directive, workdir, args.mode,
+                    parent_id=parent_id,
+                ))
+                max_turns_runtime += 1   # α 정책
+                streak = 0
+                if max_turns_runtime > MAX_TURNS_HARD_CAP:
+                    bus.append(_meta_msg(
+                        turn,
+                        f"auto_end_hard_cap (max_turns_runtime > {MAX_TURNS_HARD_CAP})",
+                        workdir, args.mode, parent_id=parent_id,
+                    ))
+                    return 0
+        turn += 1
+
+    # while 탈출 — last_turn_now에서 e 선택했으면 위 return. c + last_turn_now 시
+    # turn += 1로 while False → fallthrough → max-turns reached.
+    last = bus.read_all()[-1]
+    bus.append(_meta_msg(
+        max_turns_runtime, "auto-end (max-turns reached)", workdir, args.mode,
+        parent_id=last.msg_id,
+    ))
+    return 0
+
+
+def _run_session_full(
+    args: argparse.Namespace,
+    K: int,
+    max_turns_runtime: int,
+    bus: Bus,
+    driver_runner: AgentRunner,
+    reviewer_runner: AgentRunner,
+    workdir: Path,
+    sessions_dir: Path,
+) -> int:
+    """full mode — 매 턴 끝 prompt_decision (6지선다 a/r/m/i/e/s).
+
+    listener 가동 X — 매 턴 prompt 자동. 분기:
+      a → 다음 턴 driver build_prompt에 exclude_reviewer=True (reviewer critique 제외)
+      r → directive 자동 주입 (사용자 입력 우선, 없으면 last_critique.content[:200])
+      m → 현재 동작 (둘 다 history)
+      i → max_turns_runtime += 1 (α 정책) + streak 리셋 + hard_cap 가드
+      e → auto_end_user
+      s → 다음 턴 reviewer 호출 skip
+    """
+    streak = 0
+    turn = 1
+    skip_reviewer_next = False
+    exclude_reviewer_history_next = False
+    while turn <= max_turns_runtime:
+        run_turn(
+            turn, args.mode,
+            driver_runner=driver_runner, reviewer_runner=reviewer_runner,
+            bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
+            skip_reviewer=skip_reviewer_next,
+            exclude_reviewer_history=exclude_reviewer_history_next,
+        )
+        history_after = bus.read_all()
+        last_msg = history_after[-1]
+        if last_msg.kind == "error" and last_msg.turn_id == turn:
+            bus.append(_meta_msg(
+                turn, f"auto-end (error: {last_msg.content[:80]})", workdir, args.mode,
+                parent_id=last_msg.msg_id,
+            ))
+            return 0
+
+        # parent_id 결정 — reset 이전 (P1-새-2 dead code fix).
+        if skip_reviewer_next:
+            parent_id = _last_proposal_msg_id(history_after) or history_after[-1].msg_id
+        else:
+            parent_id = _last_critique_msg_id(history_after) or history_after[-1].msg_id
+        skip_reviewer_next = False
+        exclude_reviewer_history_next = False
+
+        key, raw_directive = prompt_decision(turn_id=turn, interactive_mode="full")
+
+        # full r 분기 directive 자동 주입 (β inline — `_summarize_critique` helper 폐기).
+        # raw_directive 빈 입력 시만 last_critique.content[:200] 자동 주입. 사용자 우선.
+        if key == "r" and not raw_directive:
+            last_critique = next(
+                (m for m in reversed(history_after) if m.kind == "critique"),
+                None,
+            )
+            if last_critique is not None:
+                raw_directive = (
+                    f"이전 턴 reviewer 비판 강조 채택: "
+                    f"{last_critique.content[:200]}"
+                )
+
+        bus.append(_decision_msg(
+            turn, key, raw_directive, workdir, args.mode,
+            parent_id=parent_id,
+        ))
+
+        if key == "a":
+            exclude_reviewer_history_next = True
+        elif key == "r":
+            pass  # decision_msg는 위에서 append 완료 (directive 보존)
+        elif key == "m":
+            pass  # 현재 동작 (둘 다 history)
+        elif key == "i":
+            max_turns_runtime += 1
+            streak = 0
+            if max_turns_runtime > MAX_TURNS_HARD_CAP:
+                bus.append(_meta_msg(
+                    turn,
+                    f"auto_end_hard_cap (max_turns_runtime > {MAX_TURNS_HARD_CAP})",
+                    workdir, args.mode, parent_id=parent_id,
+                ))
+                return 0
+        elif key == "e":
+            bus.append(_meta_msg(
+                turn, "auto_end_user", workdir, args.mode,
+                parent_id=parent_id,
+            ))
+            return 0
+        elif key == "s":
+            skip_reviewer_next = True
+        turn += 1
+
+    # max-turns 도달 fallthrough.
+    last = bus.read_all()[-1]
+    bus.append(_meta_msg(
+        max_turns_runtime, "auto-end (max-turns reached)", workdir, args.mode,
+        parent_id=last.msg_id,
+    ))
+    return 0

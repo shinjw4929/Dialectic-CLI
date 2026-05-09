@@ -105,7 +105,7 @@ def test_interactive_menu_task_dispatches_run_session(monkeypatch, stub_check_en
     assert args.max_turns == 1
     assert args.mode == "run"
     assert args.convergence_streak == 2
-    assert args.interactive == "end-only"
+    assert args.interactive == "critical"  # plan 009 Phase A: 메뉴 default 변경
     assert args.workdir is None
 
 

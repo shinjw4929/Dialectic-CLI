@@ -72,8 +72,11 @@ def main() -> int:
              "(outline/02 §2.9). default K=2. ADR-9: --max-turns < K+1 시 K=1 fallback.",
     )
     p_run.add_argument(
-        "--interactive", choices=["end-only"], default="end-only",
-        help="Day 2 한정 'end-only' 단일 노출. Day 3+에서 full/critical 추가.",
+        "--interactive", choices=["end-only", "critical", "full"], default="end-only",
+        help="사용자 개입 강도 dial (outline §3.1). "
+             "end-only=세션 종료 시 1회만 prompt (CLI default). "
+             "critical=Ctrl+F 비동기 트리거 + 수렴 시 잠재 prompt. "
+             "full=매 턴 6지선다 prompt (end/iterate/skip/abort/replace/etc).",
     )
     p_run.set_defaults(func=lambda args: orchestrator.run_session(args))
 
@@ -240,7 +243,11 @@ def _interactive_menu_body() -> int:
     # prompt는 `> ` 2 char로 최소화 — terminal wide-char(한글) Backspace 표시 결함은
     # IUTF8 + 짧은 prompt + 진행 확인 단계의 task echo back으로 cover (입력 buffer는
     # line discipline이 정확히 누적). 안내·example은 별도 print 라인.
-    print("task: 한 줄로 작업 의도. 예: '다익스트라 최단거리 알고리즘 Python 예제 작성'")
+    print(
+        "task: 한 줄로 작업 의도. "
+        "예: '다익스트라 최단거리 알고리즘 Python 예제를 작성해줘. "
+        "이때 아스키 아트로 매 턴 시각적 검증이 될 수 있도록 해줘'"
+    )
     print("'?'=도움말, Ctrl-C=종료. 한글 입력 시 IME 조립 결함으로 일부 char가 buffer에 누락될 수 있음 — 진행 확인 단계의 task echo back 시각 검증 권장.")
 
     try:
@@ -258,7 +265,7 @@ def _interactive_menu_body() -> int:
         cmd="run", task=task, workdir=None,
         driver="codex", reviewer="claude",
         max_turns=max_turns, mode="run",
-        convergence_streak=2, interactive="end-only",
+        convergence_streak=2, interactive="critical",
     )
     # run_session 진행 중 Ctrl-C도 _safe_input과 동일 종료 확인 패턴 (한글 cursor 결함 차단 위해
     # `_readline_input` 통일 — review-code P1 fix).

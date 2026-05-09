@@ -18,8 +18,8 @@ _TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 
 @dataclass(frozen=True, slots=True)
 class Meta:
-    vendor: str            # "openai" | "anthropic" | "mock"
-    agent_cli: str         # "codex" | "claude" | "mock"
+    vendor: str            # "openai" | "anthropic" | "mock" | "user" | "system"
+    agent_cli: str         # "codex" | "claude" | "mock" | "user" | "system"
     model: str | None      # codex는 항상 None (이벤트에 model 필드 부재)
     session_id: str | None  # claude
     thread_id: str | None   # codex
@@ -50,7 +50,7 @@ class Message:
     to: str
     slot: str | None       # "driver" | "reviewer" | None (system/user)
     mode: str              # "run" | "plan" | "implement" | "compare"
-    kind: str              # "task" | "proposal" | "critique" | "decision" | "error" | "meta"
+    kind: str              # "task" | "proposal" | "critique" | "decision" | "error" | "meta" | "patch_applied"
     content: str
     directive: str | None
     meta: Meta

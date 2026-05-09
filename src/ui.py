@@ -7,15 +7,21 @@ EOF/KeyboardInterrupt = end (비대화형 환경 안전망).
 
 from __future__ import annotations
 
+import fcntl
 import os
 import select
 import signal
 import sys
-import termios
 import threading
 import time
+import tty
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Iterator
+
+try:
+    import termios
+except ImportError:  # pragma: no cover — Windows native cmd
+    termios = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from .schema import Meta
@@ -70,8 +76,9 @@ def prompt_decision(
     - KeyboardInterrupt / EOFError → ("e", None) — Ctrl-C·파이프·CI 안전망
     - interactive_mode == "end-only" 시 directive 입력 단계 skip (key만)
 
-    호출자: 본 plan 범위 내 0건 (test 외). 후속 plan(`--interactive critical/full`)에서
-    orchestrator.run_session 또는 turn loop 내 호출 wiring.
+    호출자: orchestrator.run_session full 모드 (plan 009-user-synthesis-wiring 산출).
+    매 턴 끝 호출 — 6 분기 (a/r/m/i/e/s) 결과는 `_decision_msg` (kind=decision, seq=97)로
+    JSONL 보존. critical 모드는 별도 함수 `prompt_end_or_iterate` (Y/n/text 분기).
     """
     label = f"[User Synthesis · Turn {turn_id}]"
     options = " / ".join(f"{k}={KEY_LABEL[k]}" for k in DECISION_KEYS)
@@ -106,6 +113,110 @@ def prompt_decision(
 
     # INVALID_RETRY_LIMIT 회 fail → iterate fallback
     return ("i", None)
+
+
+def prompt_end_or_iterate(
+    turn_id: int,
+    reason: str,
+    *,
+    allow_continue: bool = True,
+    allow_iterate_no_directive: bool = True,
+) -> tuple[str, str | None]:
+    """critical 모드 매 턴 끝 prompt — Y/n/text 3 분기.
+
+    잠재 prompt 시점 narrative:
+      호출 시점은 critical 모드 매 턴 끝의 "잠재 prompt 시점" — Phase D
+      orchestrator wiring에서 `should_prompt = trigger.is_set() OR converged_now
+      OR last_turn_now` 셋 OR 분기. "종료 직전"이 아니라 "사용자 결정 잠재 시점".
+      함수 이름 `end_or_iterate`는 두 결과(e=end / i=iterate) 강조.
+
+    라벨: outline §3.2 line 216 SSOT 형식 — `[User Synthesis · Turn {turn_id}]`.
+    이어서 reason 별도 라인 (`reason: <reason>`).
+
+    reason 예:
+        "Ctrl+F 트리거"
+        "[CONVERGED] streak 2 도달"
+        "max-turns 5 도달"
+
+    분기:
+        Y / y                        → ("e", None)  종료
+        n / N                        → ("i", None)  지시 없이 한 턴 더
+        c / C                        → ("c", None)  취소 (이어서 진행)
+        그 외 텍스트                  → ("i", text) driver에 지시 전달 (원본 strip 보존)
+        Enter (빈 입력)               → 재입력 안내 + retry. INVALID_RETRY_LIMIT 회 fail 시
+                                       ("c", None) fallback (자연 진행 default, 비대화형 안전망)
+        EOFError / KeyboardInterrupt → ("e", None) CI·파이프 abort
+
+    `prompt_decision`과 분리 — Enter default 의미 정반대 (full 모드 = iterate vs
+    critical 모드 잠재 prompt = end). 한 함수에 mode 분기 넣으면 default 의미 모호.
+
+    호출 시점: orchestrator.run_session critical 모드, with TriggerListener 블록
+    종료 (cleanup) 직후. canonical mode 회복 상태이므로 input() 정상 동작 (P-RAW 정합).
+
+    호출자: orchestrator.run_session critical 모드 (Phase D wiring).
+    """
+    label = f"[User Synthesis · Turn {turn_id}]"
+    # 옵션 분기:
+    #   trigger 단독 (allow_continue=True, allow_iterate_no_directive=False) → Y/c/텍스트
+    #   CONVERGED/last_turn (allow_continue=False, allow_iterate_no_directive=True) → Y/n/텍스트
+    #   둘 다 (default) → Y/n/c/텍스트
+    options_parts = ["Y=종료"]
+    valid_keys_parts = ["Y"]
+    if allow_iterate_no_directive:
+        options_parts.append("n=지시 없이 한 턴 더")
+        valid_keys_parts.append("n")
+    if allow_continue:
+        options_parts.append("c=취소 (이어서 진행)")
+        valid_keys_parts.append("c")
+    options_parts.append("텍스트=driver에 지시 전달")
+    valid_keys_parts.append("텍스트")
+    options_narrative = ", ".join(options_parts)
+    valid_keys = " / ".join(valid_keys_parts)
+    invalid = 0
+    while invalid < INVALID_RETRY_LIMIT:
+        try:
+            print(label, file=sys.stderr)
+            print(f"reason: {reason}", file=sys.stderr)
+            print(options_narrative, file=sys.stderr)
+            # input() 사용 (Phase D 1차 산출 패턴). cleanup-restart 패턴이라 listener는
+            # prompt 진입 전 완전 종료 — byte 절도 race 0이라 readline lib 잔재 영향 ↓.
+            raw = input("> ")
+        except (EOFError, KeyboardInterrupt):
+            return ("e", None)
+        text = raw.strip()
+        if text == "":
+            invalid += 1
+            print(f"{valid_keys} 중 하나를 입력해주세요.", file=sys.stderr)
+            continue
+        if text.lower() == "y":
+            return ("e", None)
+        if text.lower() == "n":
+            if allow_iterate_no_directive:
+                return ("i", None)
+            invalid += 1
+            print(
+                "n 사용 불가 (trigger 시점) — 텍스트로 driver에 지시 전달.",
+                file=sys.stderr,
+            )
+            continue
+        if text.lower() == "c":
+            if allow_continue:
+                return ("c", None)
+            invalid += 1
+            print(
+                "c 사용 불가 (자연 종료 시점) — Y 또는 텍스트.",
+                file=sys.stderr,
+            )
+            continue
+        return ("i", text)
+    # 한계 fallback —
+    #   allow_continue=True (trigger): c (자연 진행)
+    #   allow_continue=False (CONVERGED/last_turn): e (자연 종료 정합)
+    if allow_continue:
+        print("유효 입력 없음 — 자동으로 '취소 (이어서 진행)' 적용.", file=sys.stderr)
+        return ("c", None)
+    print("유효 입력 없음 — 자동으로 '종료' 적용.", file=sys.stderr)
+    return ("e", None)
 
 
 class Spinner:
@@ -153,6 +264,229 @@ class Spinner:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+
+
+class TriggerListener:
+    """Ctrl+F (chr(0x06)) 단일 byte 비동기 listener.
+
+    Spinner와 동일 패턴 (isatty 가드, threading.Thread daemon, threading.Event).
+    POSIX termios raw mode → listener thread fd 한정. main thread stdout/stderr 영향 X.
+    Windows native cmd는 termios import 실패 → no-op fallback (self._enabled=False).
+
+    cleanup-restart 패턴: __exit__ 시 thread.join + tcsetattr 복원 → 매 턴 끝
+    `with TriggerListener() as trigger:` 블록 종료 → main thread `prompt_end_or_iterate`
+    호출 (canonical mode 회복) → 다음 턴 진입 시 새 인스턴스 `with`. fd 동시 점유 0
+    (P-RAW R5 차단). 비용 ms 단위, 사용자 인지 0.
+
+    컨텍스트 매니저 사용 (한 턴 단위):
+        for turn in ...:
+            with TriggerListener() as trigger:
+                run_turn(...)
+                if trigger.is_set() or converged:
+                    pass  # block exit → cleanup
+            # 여기서 prompt_end_or_iterate (canonical mode)
+
+    __enter__: stderr 안내 1줄 + thread.start(). isatty=False면 no-op
+    __exit__: stop event set + thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+              + try/finally tcsetattr 복원 (R3 안전망 필수)
+    """
+
+    TRIGGER_BYTE: int = 0x06  # Ctrl+F (paste — 변형 금지, Linux ASCII control char)
+    # 사용자 환경 (WSL2 PTY)에서 첫 누름 byte race로 1회 단발 인식 어려움 — Ctrl+T로
+    # 변경 시도했으나 동일 결함. 환경 특성으로 받아들임. 사용자 narrative: "2회 연타"
+    # 안내. listener thread는 자체 polling 0.1s + 사전 누름 회수 path도 race 잔존.
+
+    def __init__(self) -> None:
+        self._triggered = threading.Event()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._old_attrs: list | None = None
+        self._fd: int = -1
+        # self-pipe — pause/__exit__ 시 select 즉시 깨움 (cycle 0.1s 안 byte 절도 차단).
+        self._wake_r: int = -1
+        self._wake_w: int = -1
+        isatty = bool(getattr(sys.stderr, "isatty", lambda: False)())
+        self._enabled = isatty and termios is not None
+
+    def is_set(self) -> bool:
+        """트리거 발생 여부 (threading.Event proxy)."""
+        return self._triggered.is_set()
+
+    def _run(self) -> None:
+        """listener thread body — tty.setcbreak + select fd-level + os.read byte 단위.
+
+        select에 self._fd 직접 + os.read(fd, 1) byte 단위 — sys.stdin TextIOWrapper
+        buffer 우회 (Python text mode + fd-level select 불일치 회피, P-RAW 정공법.
+        stdin_canonical_off:209-287 동일 패턴).
+        select timeout=0.1로 self._stop polling. tty.setcbreak는 fd 한정 raw 효과 —
+        main thread stdout/stderr 출력에 영향 X. 실패 silent return.
+        """
+        try:
+            # setcbreak default `when=TCSAFLUSH` — input queue drain 후 raw mode 적용 →
+            # setcbreak 호출 직전 사용자가 누른 byte 손실 (사용자 narrative: "Ctrl+F 2번
+            # 눌러야지만 반영" — 첫 byte가 setcbreak TCSAFLUSH drain으로 폐기, 두 번째
+            # byte만 raw mode 적용 후 인식). when=TCSANOW로 변경 — 즉시 적용 + buffer 보존.
+            if termios is None:
+                return
+            tty.setcbreak(self._fd, when=termios.TCSANOW)
+        except Exception:
+            # OSError, termios.error 둘 다 silent — termios.error는 OSError 하위 X.
+            return
+        while not self._stop.is_set():
+            # self-pipe로 stop 신호 즉시 감지 — pause/__exit__ 호출 시 select 즉시 깨움.
+            # cycle timeout 0.1s 그대로지만 self._wake_r에 byte 들어오면 즉시 ready.
+            watch_fds = [self._fd]
+            if self._wake_r >= 0:
+                watch_fds.append(self._wake_r)
+            try:
+                ready, _, _ = select.select(watch_fds, [], [], 0.1)
+            except (OSError, ValueError):
+                return
+            if not ready:
+                continue
+            # stop 신호 우선 검사 — self._wake_r ready 시 즉시 종료 (사용자 byte 절도 차단).
+            if self._wake_r in ready or self._stop.is_set():
+                return
+            try:
+                ch_bytes = os.read(self._fd, 1)
+            except (OSError, ValueError):
+                return
+            if not ch_bytes:
+                # EOF — PTY closed. busy loop 차단 위해 즉시 종료 (C-013, P-RAW).
+                return
+            if ch_bytes[0] == self.TRIGGER_BYTE:
+                # 이미 trigger 상태 — 같은 턴 안 추가 누름 (driver/reviewer 순서 모두 누른 경우).
+                # 사용자가 trigger 인식 못 한 채 또 누른 시나리오 — 안내로 인식 보장.
+                if self._triggered.is_set():
+                    try:
+                        sys.stderr.write(
+                            "\n[i] 이미 트리거 set — 이번 턴 종료 후 입력 가능 "
+                            "(추가 Ctrl+F 무시)\n"
+                        )
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
+                    continue
+                # 첫 trigger — 즉시 피드백 + thread loop 계속 (추가 누름 안내 가능).
+                # spinner와 충돌 회피 위해 \n 명시 (별도 라인 출력 — spinner는 위 라인 유지).
+                self._triggered.set()
+                try:
+                    sys.stderr.write(
+                        "\n[i] 사용자 트리거 발동 — 이번 턴 종료 후 입력 가능\n"
+                    )
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                # return 폐기 — loop 계속 (자명한 동작: 같은 턴 추가 byte 0x06 안내).
+                # thread 종료는 self._stop.set() (pause/exit) 또는 EOF만.
+
+    def __enter__(self) -> "TriggerListener":
+        if not self._enabled:
+            return self
+        try:
+            self._fd = sys.stdin.fileno()
+            self._old_attrs = termios.tcgetattr(self._fd)  # type: ignore[union-attr]
+        except Exception:
+            # tcgetattr 실패 (termios.error 포함) — silent no-op (P-RAW 견고성).
+            # termios.error는 OSError 하위 클래스가 아니라 명시 catch — Exception 폭넓게.
+            self._enabled = False
+            return self
+        # 사전 누름 byte 회수 — 사용자 narrative: "트리거 키 첫 누름 미인식".
+        # listener __enter__ 직전·직후 사용자가 누른 byte가 fd queue에 잔존 가능
+        # (line buffer canonical 또는 raw queue). setcbreak 즉시 진입 + non-blocking
+        # drain으로 byte 확보 후 0x06 (Ctrl+F = TRIGGER_BYTE) 검사. 발견 시 trigger.set
+        # — 첫 누름 보존.
+        try:
+            tty.setcbreak(self._fd, when=termios.TCSANOW)  # type: ignore[union-attr]
+        except Exception:
+            self._enabled = False
+            return self
+        try:
+            flags = fcntl.fcntl(self._fd, fcntl.F_GETFL)
+            fcntl.fcntl(self._fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            try:
+                while True:
+                    try:
+                        data = os.read(self._fd, 4096)
+                    except (BlockingIOError, OSError):
+                        break
+                    if not data:
+                        break
+                    if self.TRIGGER_BYTE in data and not self._triggered.is_set():
+                        self._triggered.set()
+                        try:
+                            sys.stderr.write(
+                                "\n[i] 사용자 트리거 발동 (사전 누름 인식) — "
+                                "이번 턴 종료 후 입력 가능\n"
+                            )
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
+            finally:
+                fcntl.fcntl(self._fd, fcntl.F_SETFL, flags)
+        except Exception:
+            pass
+        # 사용자 안내는 단순 — 개발 narrative (WSL2 PTY 환경 특성, 1회 단발 인식 불안정,
+        # listener thread polling 0.1s race) 등은 본 클래스 docstring + validation.md
+        # P-RAW에 보존. 사용자에게는 동작 방법만.
+        try:
+            sys.stderr.write("[i] Ctrl+F 2회 연타 = 다음 턴 끝 개입 단계 진입\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
+        # self-pipe pair 생성 — pause/__exit__ 시 select 즉시 깨움
+        try:
+            self._wake_r, self._wake_w = os.pipe()
+        except Exception:
+            self._wake_r = -1
+            self._wake_w = -1
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if not self._enabled:
+            return
+        # self-pipe wake — select 즉시 ready (cycle 안 byte 절도 차단)
+        self._stop.set()
+        if self._wake_w >= 0:
+            try:
+                os.write(self._wake_w, b"x")
+            except Exception:
+                pass
+        try:
+            if self._thread is not None:
+                self._thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+        finally:
+            # R3 안전망 — tcsetattr 복원은 thread join 실패해도 반드시 시도.
+            if self._old_attrs is not None and termios is not None:
+                try:
+                    termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_attrs)
+                except Exception:
+                    # OSError, termios.error 둘 다 silent — 사용자 terminal 복원 best-effort.
+                    pass
+                # canonical mode 복원 후 fd queue 잔재 byte drain — 사용자가 Ctrl+F 연타로
+                # 누적시킨 0x06 byte들이 raw → canonical 전환 시 line buffer로 옮겨가
+                # 다음 readline()이 "\x06\x06...\nc\n" 받음 → invalid retry 발생.
+                # tcflush(TCIFLUSH) — kernel input queue 명시 drain.
+                try:
+                    termios.tcflush(self._fd, termios.TCIFLUSH)
+                except Exception:
+                    pass
+            # self-pipe close
+            if self._wake_r >= 0:
+                try:
+                    os.close(self._wake_r)
+                except Exception:
+                    pass
+                self._wake_r = -1
+            if self._wake_w >= 0:
+                try:
+                    os.close(self._wake_w)
+                except Exception:
+                    pass
+                self._wake_w = -1
+
 
 
 # Linux <termios.h> IUTF8 비트 (Python termios 모듈에 미노출 빌드 fallback).
