@@ -123,6 +123,23 @@ def _now_ts() -> str:
     return datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _trim_to_first_h1(text: str) -> str:
+    """첫 마크다운 H1(`# `로 시작) 줄 위의 메타 서두를 제거. H1 부재 시 원문 그대로.
+
+    plan 모드 driver(planner.md:36 형식 `# Spec · <task_id>`) 응답이 종종 본문 위에
+    "이번 턴은 ..." 류의 메타 코멘트 줄을 둠. 그 텍스트가 그대로 spec.md로 박히면
+    다음 implement 모드 task로 들어가 driver를 오인계도(예: "구현 없이 spec만").
+
+    H1 부재(driver 자유 텍스트만 응답)는 회귀 보호상 원문 그대로 — 기존
+    test_spec_autosave 단정("Mock spec body" 등 H1 없는 본문)과 정합.
+    """
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            return "".join(lines[i:])
+    return text
+
+
 # plan 013 — task content slug + spec.md 경로 해소.
 # planner.md `:11`/`:139` + outline/04 `:199` SSOT narrative `<workdir>/specs/<task_id>.md` wiring.
 _SLUG_KEEP_RE = re.compile(r"[^a-z0-9가-힣\-_]")
@@ -606,22 +623,31 @@ def run_turn(
     # planner.md `:139` "최종 spec.md는 사용자 e 결정 시점의 본 ROLE 출력" 정책 정합.
     # reviewer 호출 전에 write — reviewer 실패해도 driver spec은 보존 (사용자 활용 가능).
     if spec_path is not None:
-        spec_path.write_text(resp1.text, encoding="utf-8")
+        spec_path.write_text(_trim_to_first_h1(resp1.text), encoding="utf-8")
 
     if patches:
         status, error, files_changed = apply_patches(patches, workdir=workdir)
-        summary = (
-            f"apply_status=ok, files_changed={files_changed}"
-            if status == "ok"
-            else f"apply_status=failed, apply_error={error}"
+    else:
+        status, error, files_changed = (
+            "no_fence",
+            "no FILE: marker found in proposal",
+            [],
         )
-        bus.append(_patch_applied_msg(
-            turn_id, workdir, mode, summary,
-            parent_id=proposal.msg_id,
-            apply_status=status,
-            apply_error=error,
-            files_changed=files_changed,
-        ))
+
+    if status == "ok":
+        summary = f"apply_status=ok, files_changed={files_changed}"
+    elif status == "no_fence":
+        summary = f"apply_status=no_fence, apply_error={error}"
+    else:
+        summary = f"apply_status=failed, apply_error={error}"
+
+    bus.append(_patch_applied_msg(
+        turn_id, workdir, mode, summary,
+        parent_id=proposal.msg_id,
+        apply_status=status,
+        apply_error=error,
+        files_changed=files_changed,
+    ))
 
     # ---- reviewer ----
     # full s 분기 시 skip_reviewer=True → reviewer 호출 skip + critique 미생성.
@@ -665,6 +691,12 @@ def run_turn(
 
     # outline/02 §2.9: 마커 감지 → critique meta.convergence_streak에 1 또는 None.
     is_converged = _detect_converged(resp2.text)
+    # P1-3 code-blind CONVERGED 가드 — implement 모드에서 직전 proposal에 fence 0건이면
+    # reviewer가 [CONVERGED]를 출력했어도 무효. 코드 0건 상태로 수렴 카운터 증가하면
+    # auto_end_converged가 silent failure(files_changed=0 SystemExit) 직전까지 진행돼
+    # cross-vendor 발견자 thesis가 무력화됨. role spec-reviewer.md(soft 안내)와 짝.
+    if mode == "implement" and status == "no_fence":
+        is_converged = False
     critique_meta = dataclasses.replace(
         resp2.meta, convergence_streak=1 if is_converged else None,
     )

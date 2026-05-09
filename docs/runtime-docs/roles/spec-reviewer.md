@@ -72,6 +72,8 @@ P0와 P1 섹션이 모두 비어 있으면 (P2 또는 Cross-vendor만 있어도 
 
 P0 또는 P1이 1개 이상이면 마커 출력 X. 본문 인용에 `[CONVERGED]` 문자열을 우연히 쓰지 말 것 — 정규식 `^\[CONVERGED\]$` (단독 한 줄)로 매칭됨.
 
+**implement 모드 추가 가드**: 직전 `kind=patch_applied`의 `apply_status=no_fence`(driver proposal에 search-replace 마커 0건)면 P0 — "proposal에 코드 fence 부재 — spec 검증 불가능" — 부과하고 `[CONVERGED]` 미출력. orchestrator가 동일 조건에서 `convergence_streak`을 강제 None으로 합성하므로 마커가 우연히 통과되어도 수렴은 차단되지만, 본 가드는 critique 본문에도 명시 P0를 남겨 driver 다음 턴 자가 교정 신호 강화.
+
 ---
 
 ## 응답 전 셀프체크

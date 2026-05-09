@@ -43,9 +43,9 @@
 | `workdir` | `str` | resolved cwd (재현성) |
 | `convergence_streak` | `int \| None = None` | reviewer `[CONVERGED]` 1, 그 외 None. auto_end_converged 메시지에 K 박힘 |
 | `patches` | `list[dict[str,str]] \| None = None` | kind=proposal일 때 driver 응답에서 추출한 search-replace 블록 리스트 (ADR-10). 빈 리스트면 None 일관 |
-| `apply_status` | `str \| None = None` | kind=patch_applied일 때만 `"ok"` 또는 `"failed"` (ADR-10 R2.7) |
-| `apply_error` | `str \| None = None` | apply_status=failed 시 사유 (예: `"path outside workdir: ..."`, `"search not found in ..."`, `"ambiguous match: ..."`, `"empty SEARCH not allowed in ..."`) |
-| `files_changed` | `list[str] \| None = None` | apply_status=ok 시 변경된 파일 상대 경로 리스트, failed 시 빈 리스트 또는 None |
+| `apply_status` | `str \| None = None` | kind=patch_applied일 때만 `"ok"` / `"failed"` / `"no_fence"` (ADR-10 R2.7). `"no_fence"`는 proposal에 search-replace 마커 0건(driver fence 미준수 또는 의도적 코드 부재 응답) 시그널 — apply 시도 0이지만 silent skip 차단 위해 명시 발행 (`SYSTEM (patch_applied): apply_status=no_fence ...`로 다음 턴 driver R1 prompt 자가 교정 채널 보존) |
+| `apply_error` | `str \| None = None` | apply_status=failed 시 사유 (예: `"path outside workdir: ..."`, `"search not found in ..."`, `"ambiguous match: ..."`, `"empty SEARCH not allowed in ..."`). apply_status=no_fence 시 `"no FILE: marker found in proposal"` |
+| `files_changed` | `list[str] \| None = None` | apply_status=ok 시 변경된 파일 상대 경로 리스트, failed/no_fence 시 빈 리스트 또는 None |
 
 ### decision kind 메시지 meta 정직성
 

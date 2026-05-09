@@ -163,3 +163,90 @@ def test_run_turn_patch_traversal_failure_records_error(tmp_path):
 
     # workdir 파일 미변경
     assert target.read_text(encoding="utf-8") == "untouched\n"
+
+
+# ─── case 3: no_fence (proposal에 fence 0건) ───────────────────────────────────
+
+
+def test_run_turn_no_fence_records_no_fence_status(tmp_path):
+    """driver 응답에 search-replace 마커 0건 → patch_applied seq=98 + apply_status=no_fence.
+
+    silent skip 차단 (이전 동작은 if patches: 분기 통째로 건너뛰어 메시지 미발행).
+    fix 후에는 proposal 직후 항상 patch_applied 발행 — driver R1 prompt 자가 교정 채널 복구.
+    """
+    workdir, sessions_dir, bus_path = _setup_workdir(tmp_path)
+    target = workdir / "target.py"
+    target.write_text("untouched\n", encoding="utf-8")
+
+    driver_text = "코드 없이 spec만 정리합니다.\n## 요약\nN/A — 구현 없음.\n"
+    reviewer_text = "spec ok\n[CONVERGED]"
+
+    bus = Bus(bus_path)
+    run_turn(
+        turn_id=1, mode="implement",
+        driver_runner=_FakeRunner(name="codex", vendor="openai", text=driver_text),
+        reviewer_runner=_FakeRunner(name="claude", vendor="anthropic", text=reviewer_text),
+        bus=bus, task="x", workdir=workdir, sessions_dir=sessions_dir,
+    )
+
+    msgs = bus.read_all()
+    # proposal(1) + patch_applied(98) + critique(2) — 3 라인. fence 0건이라도 patch_applied 자리 보존.
+    assert len(msgs) == 3
+    proposal = next(m for m in msgs if m.kind == "proposal")
+    patch_applied = next(m for m in msgs if m.kind == "patch_applied")
+    critique = next(m for m in msgs if m.kind == "critique")
+
+    assert proposal.seq_in_turn == 1
+    assert critique.seq_in_turn == 2
+    assert patch_applied.seq_in_turn == 98
+
+    # proposal.meta.patches는 None (fence 0건 → extract 결과 [] → None 환원)
+    assert proposal.meta.patches is None
+
+    # patch_applied — no_fence
+    assert patch_applied.meta.apply_status == "no_fence"
+    assert patch_applied.meta.apply_error == "no FILE: marker found in proposal"
+    assert patch_applied.meta.files_changed == []
+    assert patch_applied.from_ == "system"
+    assert patch_applied.slot is None
+
+    # content prefix — driver 오인 차단
+    assert patch_applied.content.startswith("apply_status=no_fence")
+
+    # workdir 파일 미변경
+    assert target.read_text(encoding="utf-8") == "untouched\n"
+
+    # P1-3 가드 — reviewer가 [CONVERGED] 출력했어도 mode=implement + no_fence면 수렴 차단
+    assert critique.meta.convergence_streak is None
+
+
+# ─── case 4: P1-3 — run 모드 fence 0건은 가드 미적용 (회귀 보호) ───────────────
+
+
+def test_run_turn_no_fence_in_run_mode_does_not_block_converge(tmp_path):
+    """run 모드는 patch fence 0건이어도 [CONVERGED] 정상 통과 — 가드는 implement 모드 한정.
+
+    회귀 보호: run 모드 driver는 코드 외 자유 응답(분석·요약 등)도 정상 산출이라
+    code-blind CONVERGED 가드를 적용하면 안 됨.
+    """
+    workdir, sessions_dir, bus_path = _setup_workdir(tmp_path)
+
+    driver_text = "# 분석 결과\n간단한 코드 없음 응답.\n"
+    reviewer_text = "looks good\n[CONVERGED]"
+
+    bus = Bus(bus_path)
+    run_turn(
+        turn_id=1, mode="run",
+        driver_runner=_FakeRunner(name="codex", vendor="openai", text=driver_text),
+        reviewer_runner=_FakeRunner(name="claude", vendor="anthropic", text=reviewer_text),
+        bus=bus, task="x", workdir=workdir, sessions_dir=sessions_dir,
+    )
+
+    msgs = bus.read_all()
+    critique = next(m for m in msgs if m.kind == "critique")
+    patch_applied = next(m for m in msgs if m.kind == "patch_applied")
+
+    # run 모드에서도 patch_applied(no_fence) 메시지는 발행됨 — 신호 일관성
+    assert patch_applied.meta.apply_status == "no_fence"
+    # 그러나 수렴 카운터는 정상 — run 모드는 가드 미적용
+    assert critique.meta.convergence_streak == 1

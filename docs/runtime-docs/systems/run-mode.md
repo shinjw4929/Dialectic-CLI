@@ -35,8 +35,8 @@ flowchart TD
     R0["Resolve roles<br/>driver=implementer<br/>reviewer=spec-reviewer"]
     R1["build_prompt(driver)<br/>§1 ROLE = roles/implementer.md<br/>§2 TASK<br/>§3 HISTORY (turn_id<N)<br/>§4 YOUR TURN"]
     R2["subprocess: codex exec --json<br/>cwd=resolved_workdir<br/>응답에서 patches 추출 (ADR-10)<br/>append kind=proposal, slot=driver<br/>meta.patches=[...] or None"]
-    R26["**R2.6** apply_patches(patches, workdir=workdir)<br/>(if patches; ADR-10 all-or-nothing)<br/>path validation → 빈 SEARCH 차단 → dry-run unique-match → commit write"]
-    R27["**R2.7** append kind=patch_applied<br/>seq=98, from=system<br/>meta.apply_status=ok|failed<br/>content=apply_status=... (prefix 명시)"]
+    R26["**R2.6** if patches: apply_patches(...)<br/>else: status='no_fence' (ADR-10 all-or-nothing)<br/>path validation → 빈 SEARCH 차단 → dry-run unique-match → commit write"]
+    R27["**R2.7** append kind=patch_applied (항상 발행)<br/>seq=98, from=system<br/>meta.apply_status=ok|failed|no_fence<br/>content=apply_status=... (prefix 명시)"]
     R3["build_prompt(reviewer)<br/>§3 HISTORY = turn N proposal+patch_applied 포함"]
     R4["subprocess: claude -p<br/>(stdin: 4섹션 prompt)<br/>append kind=critique, slot=reviewer<br/>meta.convergence_streak = 1 if [CONVERGED] else None"]
     R5{"streak >= K?"}
@@ -51,7 +51,7 @@ flowchart TD
     R7 -- no --> R8
 ```
 
-`protocol.md §4 :226-248` 라이프사이클 mermaid의 run 모드 구현. R2.6/R2.7은 ADR-10 search-replace 메커니즘 (patches 0개면 skip — 노이즈 차단). R5/R6은 outline/02 §2.9 [CONVERGED] 메커니즘 보강.
+`protocol.md §4 :226-248` 라이프사이클 mermaid의 run 모드 구현. R2.6/R2.7은 ADR-10 search-replace 메커니즘 (proposal 직후 항상 patch_applied 발행 — patches 0건도 `apply_status="no_fence"`로 명시 발행하여 silent skip 차단 + driver R1 prompt 자가 교정 채널 보존). R5/R6은 outline/02 §2.9 [CONVERGED] 메커니즘 보강. `mode=="implement"` + `apply_status=="no_fence"` 조합은 추가 가드로 `convergence_streak=None` 강제(`orchestrator.md §run_turn 라이프사이클` P1-3 narrative 참조) — run 모드는 가드 미적용.
 
 ## 3. 메시지 흐름 (실 호출 검증 기록)
 
@@ -61,7 +61,7 @@ flowchart TD
 |---|---|---|---|---|---|---|
 | 1 | 0 | 1 | system | task | null | vendor=system, is_mock=false |
 | 2 | 1 | 1 | implementer | proposal | (task) | vendor=openai, agent_cli=codex, thread_id=..., reasoning_output_tokens=37, **patches=[...] or None (ADR-10)** |
-| 2.5 | 1 | 98 | system | patch_applied | (proposal) | (있을 때만) **apply_status=ok\|failed, files_changed=[...]** (ADR-10 R2.7) |
+| 2.5 | 1 | 98 | system | patch_applied | (proposal) | (proposal 직후 항상) **apply_status=ok\|failed\|no_fence, files_changed=[...]** (ADR-10 R2.7) |
 | 3 | 1 | 2 | spec-reviewer | critique | (proposal 또는 patch_applied) | vendor=anthropic, agent_cli=claude, session_id=..., **convergence_streak=1**, cost_usd=0.063 |
 | 4 | 1 | 99 | system | meta (auto_end_converged) | (critique) | vendor=system, **convergence_streak=1** |
 

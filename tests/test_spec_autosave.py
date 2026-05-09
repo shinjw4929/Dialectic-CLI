@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.orchestrator import _resolve_spec_path, _task_to_slug
+from src.orchestrator import _resolve_spec_path, _task_to_slug, _trim_to_first_h1
 
 
 # ---------------------------------------------------------------------------- #
@@ -302,3 +302,61 @@ def test_spec_autosave_stderr_announce_run_mode_no_spec(tmp_path, monkeypatch, c
     err = capsys.readouterr().err
     assert "spec.md:" not in err
     assert "messages.jsonl:" in err  # 기존 안내는 유지
+
+
+# ---------------------------------------------------------------------------- #
+# _trim_to_first_h1 — 첫 H1 위 메타 서두 제거 (P0 핫픽스)
+# ---------------------------------------------------------------------------- #
+
+
+def test_trim_h1_strips_meta_preamble():
+    """driver가 본문 위에 메타 한 줄 두면 H1부터 잘라냄."""
+    text = (
+        "이번 턴은 reviewer가 [CONVERGED]를 낸 상태라, 구현 없이 spec만 정리합니다.\n"
+        "# Spec · my_function\n"
+        "## Signature\n"
+    )
+    assert _trim_to_first_h1(text) == "# Spec · my_function\n## Signature\n"
+
+
+def test_trim_h1_no_h1_returns_original():
+    """H1 부재 시 원문 그대로 반환 (회귀 보호 — 기존 spec_autosave 단정 유지)."""
+    text = "Mock spec body"
+    assert _trim_to_first_h1(text) == "Mock spec body"
+
+
+def test_trim_h1_first_line_is_h1_returns_original():
+    """이미 H1로 시작하면 변형 없음."""
+    text = "# Spec · x\n## Signature\n"
+    assert _trim_to_first_h1(text) == text
+
+
+def test_trim_h1_h2_above_h1_is_dropped():
+    """H1 위에 H2 등 다른 헤더 있어도 H1까지 잘라냄 (가장 자연스러운 SSOT 첫 줄 정합)."""
+    text = "## 메모\n참고\n# Spec · y\n본문\n"
+    assert _trim_to_first_h1(text) == "# Spec · y\n본문\n"
+
+
+def test_spec_autosave_run_turn_strips_meta_preamble(tmp_path):
+    """run_turn(spec_path=...) — driver text H1 위 메타 줄 제거됨 (P0 핫픽스 통합)."""
+    bus, sessions_dir = _setup_bus(tmp_path)
+    spec_path = tmp_path / "specs" / "trim.md"
+    spec_path.parent.mkdir()
+
+    driver_text = (
+        "이번 턴은 spec만 정리합니다.\n"
+        "# Spec · trim_target\n"
+        "## Signature\n"
+    )
+
+    orchestrator.run_turn(
+        1, "plan",
+        driver_runner=_mock_runner(driver_text),
+        reviewer_runner=_mock_runner("ok [CONVERGED]"),
+        bus=bus, task="trim", workdir=tmp_path, sessions_dir=sessions_dir,
+        spec_path=spec_path,
+    )
+
+    assert spec_path.read_text(encoding="utf-8") == (
+        "# Spec · trim_target\n## Signature\n"
+    )

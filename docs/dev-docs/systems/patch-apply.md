@@ -90,19 +90,27 @@ proposal_meta = dataclasses.replace(resp1.meta, patches=patches or None)
 proposal = _msg(turn_id, 1, ..., meta=proposal_meta)
 bus.append(proposal)
 
-if patches:  # patches 0개면 R2.6/R2.7 skip
+if patches:
     status, error, files_changed = apply_patches(patches, workdir=workdir)
-    summary = (f"apply_status=ok, files_changed={files_changed}"
-               if status == "ok"
-               else f"apply_status=failed, apply_error={error}")
-    bus.append(_patch_applied_msg(
-        turn_id, workdir, mode, summary,
-        parent_id=proposal.msg_id,
-        apply_status=status, apply_error=error, files_changed=files_changed,
-    ))
+else:
+    # P1-2 핫픽스: proposal에 fence 0건도 patch_applied 항상 발행 (silent skip 폐기)
+    status, error, files_changed = "no_fence", "no FILE: marker found in proposal", []
+
+if status == "ok":
+    summary = f"apply_status=ok, files_changed={files_changed}"
+elif status == "no_fence":
+    summary = f"apply_status=no_fence, apply_error={error}"
+else:
+    summary = f"apply_status=failed, apply_error={error}"
+
+bus.append(_patch_applied_msg(
+    turn_id, workdir, mode, summary,
+    parent_id=proposal.msg_id,
+    apply_status=status, apply_error=error, files_changed=files_changed,
+))
 ```
 
-`summary` prefix `apply_status=` 명시 — driver 다음 턴 prompt에서 `_serialize_history` system 분기로 `SYSTEM (patch_applied): apply_status=...` 직렬화. driver의 reviewer critique 오인 차단 mitigation (orchestrator.md §5.6 (2)).
+`summary` prefix `apply_status=` 명시 — driver 다음 턴 prompt에서 `_serialize_history` system 분기로 `SYSTEM (patch_applied): apply_status=...` 직렬화. driver의 reviewer critique 오인 차단 mitigation (orchestrator.md §5.6 (2)) + fence 미준수 시 driver 자가 교정 채널 (`apply_status=no_fence` 신호로 다음 턴 fence 포함 유도).
 
 ## 검증 (단위 11 케이스 + 통합 2 케이스)
 

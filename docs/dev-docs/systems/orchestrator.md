@@ -103,8 +103,9 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 | `_error_msg(turn_id, seq_in_turn, role, slot, mode, exc, workdir, *, parent_id, vendor="system", agent_cli="system", latency_ms=0, response_meta=None) -> Message` | 빈 응답·timeout·auth fail | `run_turn` |
 | `_task_msg(task, mode, workdir) -> Message` | turn_id=0 첫 메시지 | `run_session` |
 | `_meta_msg(turn_id, content, workdir, mode, *, parent_id, convergence_streak=None) -> Message` | auto_end_converged·auto-end (max-turns reached) | `run_session` |
-| `_patch_applied_msg(turn_id, workdir, mode, content, *, parent_id, apply_status, apply_error, files_changed) -> Message` (ADR-10 R2.7) | search-replace 적용 결과 (성공/실패 모두) | `run_turn` |
+| `_patch_applied_msg(turn_id, workdir, mode, content, *, parent_id, apply_status, apply_error, files_changed) -> Message` (ADR-10 R2.7) | search-replace 적용 결과 — `apply_status="ok"` / `"failed"` / `"no_fence"` (proposal fence 0건). proposal 직후 항상 발행 (silent skip 폐기) | `run_turn` |
 | `_decision_msg(turn_id, key, directive, workdir, mode, *, parent_id) -> Message` (Phase D wiring) | critical/full 모드 사용자 결정 — `kind="decision"`, `seq_in_turn=97`, `vendor="user"`, `agent_cli="user"`, 토큰 4종 0, `cost_usd=None`, `is_mock=False` | `run_session` critical/full 분기 |
+| `_trim_to_first_h1(text: str) -> str` (P0-1 핫픽스) | plan 모드 driver 응답 spec.md write 직전 호출 — 첫 마크다운 H1(`# `) 위 메타 서두 줄 제거. H1 부재 시 원문 그대로 (회귀 보호). plan 모드 driver가 응답 첫 줄에 메타 코멘트("이번 턴은 ...")를 두면 spec.md에 박혀 다음 implement 모드 task로 누수되는 결함 차단 | `run_turn` (mode==plan + spec_path 활성 시) |
 
 `_patch_applied_msg`: `from_="system"`, `slot=None`, `kind="patch_applied"`, `seq_in_turn=META_PATCH_APPLIED_SEQ`. `meta`는 `dataclasses.replace(SENTINEL_META(workdir), apply_status=..., apply_error=..., files_changed=...)`로 ADR-10 3 필드 채움 (`patches`는 None — proposal 측 책임). `content`는 호출자(`run_turn`)가 만든 prefix `apply_status=...` 명시 요약 — driver의 reviewer critique 오인 차단 mitigation.
 
@@ -126,11 +127,13 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
    - bus.append(proposal)                        # meta.patches에 1회로 기록 (P-JSONL append-only)
    - print_message(role_label, vendor_label, kind="proposal", text, meta)  # outline/03-ux §3.2:193-201 stdout 출력
 2.6. R2.6 — if patches: status, error, files_changed = apply_patches(patches, workdir=workdir)
-2.7. R2.7 — if patches: bus.append(_patch_applied_msg(... summary, apply_status, apply_error, files_changed))
-   - summary prefix `apply_status=ok|failed` (driver 오인 차단 mitigation)
-   - patches 0개면 R2.6/R2.7 skip — 노이즈 차단
+                else: status, error, files_changed = "no_fence", "no FILE: marker found in proposal", []
+2.7. R2.7 — bus.append(_patch_applied_msg(... summary, apply_status, apply_error, files_changed))  # 항상 발행
+   - summary prefix `apply_status=ok|failed|no_fence` (driver 오인 차단 mitigation + 자가 교정 채널)
+   - patches 0개도 silent skip 폐기 — driver R1 prompt에 `SYSTEM (patch_applied): apply_status=no_fence ...` 노출되어 다음 턴 fence 포함 자가 교정 유도
 3. reviewer: with Spinner(...): build_prompt(bus.read_all()) + subprocess  # proposal + patch_applied 포함
    - is_converged = _detect_converged(resp.text)
+   - **P1-3 code-blind CONVERGED 가드**: mode=="implement" and status=="no_fence" → is_converged=False 강제 (코드 0건 상태로 수렴 카운터 증가 차단, cross-vendor 발견자 thesis 보존). spec-reviewer.md soft 안내(P0 "proposal에 코드 fence 부재" 부과)와 짝 — orchestrator hard guard + role soft 안내 두 트랙
    - critique_meta = dataclasses.replace(resp.meta, convergence_streak=1 if is_converged else None)
    - bus.append(critique)
    - print_message(role_label, vendor_label, kind="critique", text, meta)  # outline/03-ux §3.2:204-225
@@ -139,7 +142,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 `dataclasses.replace`로 frozen Meta 변경 X (어댑터 meta 정직성 — 새 Meta 생성). `apply_patches`는 path validation·dry-run·all-or-nothing commit·best-effort 롤백 (patch_apply.md 정통).
 
-**spec_path wiring** (plan 013): `spec_path` 활성(`mode==plan` 진입 시 `run_session`에서 `_resolve_spec_path` 1회 계산)이면 driver 응답 `bus.append(proposal)` + `print_message` 직후 `spec_path.write_text(resp1.text, encoding="utf-8")` overwrite — reviewer 호출 전이라 reviewer 실패해도 driver spec 보존. 매 턴 마지막 정본 정책 (planner.md `:139` 정합). default `None` 회귀 0. `_run_session_*` 3종(`end_only`/`critical`/`full`) 모두 keyword-only `*, spec_path: Path | None = None`로 전달.
+**spec_path wiring** (plan 013 + P0-1 핫픽스): `spec_path` 활성(`mode==plan` 진입 시 `run_session`에서 `_resolve_spec_path` 1회 계산)이면 driver 응답 `bus.append(proposal)` + `print_message` 직후 `spec_path.write_text(_trim_to_first_h1(resp1.text), encoding="utf-8")` overwrite — `_trim_to_first_h1`은 첫 H1(`# `) 위 메타 서두만 제거(H1 부재 시 원문 그대로, 회귀 보호). reviewer 호출 전이라 reviewer 실패해도 driver spec 보존. 매 턴 마지막 정본 정책 (planner.md `:139` 정합). default `None` 회귀 0. `_run_session_*` 3종(`end_only`/`critical`/`full`) 모두 keyword-only `*, spec_path: Path | None = None`로 전달.
 
 **implement 모드 wiring** (plan 014): `args.mode == "implement"` 진입 시 `run_session`은 `_task_msg` 호출 직전(`bus = Bus(...)` 직후)에 `args.spec` 4종 검증 + spec body substitution을 수행. 검증 4종(None/missing-or-directory/UnicodeDecodeError/whitespace-only) 모두 `SystemExit` 친화 메시지로 차단 (JSONL 빈 상태 — clean exit). 정상 spec → `spec_path.read_text(encoding="utf-8")` 본문을 `args.task`에 substitute → 그 후 정상 흐름(`_task_msg` → `bus.append`)로 진입. 효과: build_prompt §2 TASK 자리에 spec 본문이 일관 주입되어 별도 `build_prompt` 분기 불필요 (`_task_msg` / `protocol.md §5 :282-284` 1:1 정합). spec 위치는 read-only이므로 cwd auto-discovery 영향 0 (ADR-6 무관). plan 모드 `_resolve_spec_path` 산출(`<workdir>/specs/<slug>.md`)이 자연스러운 입력 — `dialectic plan` 후 `dialectic implement --spec <위 경로>` chaining. CLI surface 2종 path: ① `dialectic run --mode implement --spec <path>` ② `dialectic implement --spec <path>` alias subparser (`set_defaults(mode="implement", task="")` — argparse Namespace 동등, `tests/test_implement_spec.py::test_implement_alias_argparse_equivalence` 보호).
 
