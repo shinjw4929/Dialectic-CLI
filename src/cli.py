@@ -214,12 +214,16 @@ def _check_env_with_spinner_retry() -> dict | None:
             # 'n' → 환경 점검 재시도
 
 
-def _print_env_summary(res: dict) -> None:
-    """활성 부족(N<M) 시 어느 sub-check가 fail인지 1줄 안내 (plan 009 env_check 안정화 전 임시)."""
+def _print_env_summary(res: dict) -> bool:
+    """활성 부족(N<M) 시 FAIL 안내 + 진행 confirm prompt.
+
+    반환: True면 메뉴 진행, False면 FAIL 상태로 진행 거부 (사용자 종료 의사).
+    활성 모두 OK면 print 0 + return True (자동 진행).
+    """
     active = sum(1 for tool in res.values() for r in tool.values() if r["ok"])
     total = sum(1 for tool in res.values() for _ in tool.values())
     if active >= total:
-        return
+        return True
     fails = [
         f"{tool}/{sub}"
         for tool, results in res.items()
@@ -230,6 +234,15 @@ def _print_env_summary(res: dict) -> None:
         f"환경 점검: 활성 {active}/{total} "
         f"(FAIL: {', '.join(fails)} — `dialectic doctor`로 상세 확인)"
     )
+    # FAIL 상태에서 그대로 진행하면 driver/reviewer 호출 시 어댑터 단에서 즉시 실패 traceback.
+    # 사용자가 의도적으로 진행하는 경우만 통과 — default는 종료.
+    try:
+        ans = _safe_input(
+            "FAIL 상태로 계속 진행하시겠습니까? (y=진행, Enter=종료): "
+        ).strip().lower()
+    except _MenuExit:
+        return False
+    return ans in ("y", "yes")
 
 
 def _input_task() -> str:
@@ -485,7 +498,8 @@ def _interactive_menu_body() -> int:
     res = _check_env_with_spinner_retry()
     if res is None:
         return 0
-    _print_env_summary(res)
+    if not _print_env_summary(res):
+        return 0
 
     try:
         mode = _input_mode()

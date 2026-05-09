@@ -518,16 +518,16 @@ def test_menu_implement_branch_spec_path(tmp_path, monkeypatch):
     검증: run_session 호출 시 args.mode='implement' + args.spec=<input path>
     + args.task='' (cli.py:498 mode==implement 분기 정합).
     """
-    # check_env stub — `_check_env_with_spinner_retry` 진입 우회용 (test_cli_menu.py 패턴 정합)
+    # check_env stub — 4/4 OK 가정 (FAIL confirm prompt 우회, test_cli_menu.py 패턴 정합)
     def _stub_check_env() -> dict:
         return {
             "claude": {
                 "version": {"ok": True, "stdout": "v0", "stderr": ""},
-                "auth": {"ok": False, "stdout": "", "stderr": ""},
+                "auth": {"ok": True, "stdout": "", "stderr": ""},
             },
             "codex": {
                 "version": {"ok": True, "stdout": "v0", "stderr": ""},
-                "login": {"ok": False, "stdout": "", "stderr": ""},
+                "login": {"ok": True, "stdout": "", "stderr": ""},
             },
         }
     monkeypatch.setattr(cli, "check_env", _stub_check_env)

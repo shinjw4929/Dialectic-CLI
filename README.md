@@ -244,6 +244,82 @@ Step 5 — 진행 확인 [Y/n] → run_session
 
 ---
 
+## 도움말
+
+```bash
+dialectic --help            # 서브커맨드 list (run/implement/doctor/logs)
+dialectic run --help        # run 옵션 전체 (--task/--workdir/--driver/...)
+dialectic implement --help  # implement alias 옵션
+dialectic doctor --help
+dialectic logs --help       # --tail/--follow/--kind/--full 등
+```
+
+**메뉴 진입 도움말 키**:
+- task / spec 경로 입력 단계에서 `?` 입력 → 그 단계 도움말 1줄 출력 후 재입력 prompt
+- 모든 입력 단계에서 `Ctrl-C` / `Ctrl-D` → "종료하시겠습니까? (Enter=종료, n=계속)" 확인 prompt
+
+---
+
+## 트러블슈팅
+
+빠른 시작 따라가다 막히는 흔한 케이스 + 해결.
+
+### `dialectic doctor` FAIL
+
+| FAIL 행 | 의미 | 해결 |
+|---|---|---|
+| `claude / version FAIL` | claude CLI 미설치 또는 PATH 부재 | `npm install -g @anthropic-ai/claude-code` 후 `which claude` 확인. nvm 사용 시 새 shell에서 `nvm use --lts` 먼저 |
+| `claude / auth FAIL` | claude 인증 누락 | `claude /login` (OAuth) 또는 `export ANTHROPIC_API_KEY=sk-ant-...` |
+| `codex / version FAIL` | codex CLI 미설치 | `npm install -g @openai/codex` 또는 [공식 repo](https://github.com/openai/codex) 안내 |
+| `codex / login FAIL` | codex 인증 누락 | `codex login` (ChatGPT OAuth) 또는 `export OPENAI_API_KEY=sk-...` |
+
+### `dialectic run` 진입 시 SystemExit (ADR-6 차단)
+
+```
+[ADR-6] workdir(/home/<user>/Dialectic-CLI/...)이 Dialectic-CLI repo 하위 — 사용 불가
+```
+
+**원인**: claude/codex가 cwd부터 부모 dir까지 `CLAUDE.md`/`AGENTS.md` auto-discovery → 본 repo의 개발용 .md가 런타임 prompt에 누수.
+
+**해결**: `--workdir`에 repo 밖 절대 경로 지정, 또는 인자 생략 시 자동 XDG default(`~/.local/share/dialectic/runs/...`) 사용.
+
+### 1턴만 돌고 즉시 종료 (`auto_end_converged`)
+
+driver 응답 끝에 우연히 `[CONVERGED]` 형태 텍스트 포함 → reviewer가 그 streak를 누적 → 사용자가 의도한 multi-turn dialectic 안 됨.
+
+**해결**:
+- `--convergence-streak 3` 으로 K 상향 (default 2 → 3턴 누적 필요)
+- `--interactive critical` 로 종료 직전 iterate prompt 노출 (`n` 입력 시 종료 차단 + 추가 턴)
+- task 본문에 "응답 끝에 `[CONVERGED]` 마커 사용 금지" 명시 (driver/reviewer ROLE 정합)
+
+### subprocess timeout (응답 5분 초과)
+
+`DEFAULT_TIMEOUT_S=300` 상한. 초과 시 `kind=error` 메시지 append + 다음 턴 진행 차단. 증상:
+```
+[error] subprocess.TimeoutExpired (300s) — codex/claude 응답 지연
+```
+
+**해결**: task를 더 작은 단위로 분할 (예: "전체 라이브러리 구현" → "함수 시그니처만 먼저"). vendor CLI 자체가 hang 시 `dialectic doctor` 재실행으로 인증 상태 확인.
+
+### `apply_patches` failed (`patch_applied` meta.apply_status = "failed")
+
+`messages.jsonl`에서 `kind=patch_applied` 라인 + `meta.apply_error` 확인:
+```bash
+jq -c 'select(.kind == "patch_applied") | {turn:.turn_id, status:.meta.apply_status, error:.meta.apply_error}' "$SESSION/messages.jsonl"
+```
+
+흔한 원인: SEARCH 본문이 파일에 unique match 없음 / 빈 SEARCH인데 파일 이미 존재 / path validation 실패 (workdir 밖 경로). all-or-nothing rollback이라 **부분 적용 0** — 그냥 다음 턴에서 다시 시도하면 됨.
+
+### session_dir 디스크 누적
+
+매 호출마다 `~/.local/share/dialectic/runs/` 하위 폴더 생성, cleanup X (결과 보존이 의도). 주기 정리:
+```bash
+# 7일 이상 된 session 폴더 삭제 (예시 — 본인 책임)
+find ~/.local/share/dialectic/runs/ -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+```
+
+---
+
 ## 흐름 관찰
 
 ### 추상 명령 — `dialectic logs`

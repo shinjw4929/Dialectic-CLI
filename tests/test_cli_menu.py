@@ -13,19 +13,77 @@ from src import cli
 
 @pytest.fixture
 def stub_check_env(monkeypatch):
-    """env_check.check_env() 결과 stub — 활성 N/M 요약 출력 단계 통과용."""
+    """env_check.check_env() 결과 stub — 활성 4/4 OK 가정.
+
+    FAIL 상태 confirm prompt 분기는 별도 테스트(`test_env_fail_confirm_*`)에서 검증.
+    """
     def _stub() -> dict:
         return {
             "claude": {
                 "version": {"ok": True, "stdout": "v0", "stderr": ""},
-                "auth": {"ok": False, "stdout": "", "stderr": ""},
+                "auth": {"ok": True, "stdout": "", "stderr": ""},
+            },
+            "codex": {
+                "version": {"ok": True, "stdout": "v0", "stderr": ""},
+                "login": {"ok": True, "stdout": "", "stderr": ""},
+            },
+        }
+    monkeypatch.setattr(cli, "check_env", _stub)
+
+
+def test_env_fail_blocks_menu_until_user_confirms(monkeypatch, capsys):
+    """env_check FAIL 상태에서 사용자가 Enter(default) → 메뉴 종료 (mode 선택 단계 미진입)."""
+    def _stub_fail() -> dict:
+        return {
+            "claude": {
+                "version": {"ok": True, "stdout": "v0", "stderr": ""},
+                "auth": {"ok": True, "stdout": "", "stderr": ""},
             },
             "codex": {
                 "version": {"ok": True, "stdout": "v0", "stderr": ""},
                 "login": {"ok": False, "stdout": "", "stderr": ""},
             },
         }
-    monkeypatch.setattr(cli, "check_env", _stub)
+    monkeypatch.setattr(cli, "check_env", _stub_fail)
+    # confirm prompt에 빈 입력(Enter=종료) — 단계 1에서 첫 input 호출 시 ""
+    inputs = iter([""])
+    monkeypatch.setattr(cli, "_readline_input", lambda prompt="": next(inputs))
+    rc = cli._interactive_menu()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "FAIL: codex/login" in out
+    # mode 선택 단계 미진입 — env FAIL confirm Enter로 차단
+    assert "mode 선택" not in out
+
+
+def test_env_fail_user_confirms_y_proceeds(monkeypatch, capsys):
+    """env_check FAIL 상태에서 사용자가 'y' 입력 → mode 선택 단계 진입 검증."""
+    def _stub_fail() -> dict:
+        return {
+            "claude": {
+                "version": {"ok": True, "stdout": "v0", "stderr": ""},
+                "auth": {"ok": True, "stdout": "", "stderr": ""},
+            },
+            "codex": {
+                "version": {"ok": True, "stdout": "v0", "stderr": ""},
+                "login": {"ok": False, "stdout": "", "stderr": ""},
+            },
+        }
+    monkeypatch.setattr(cli, "check_env", _stub_fail)
+    # confirm 'y' → 진행, mode 단계에서 EOFError로 종료
+    inputs = iter(["y"])
+    def _stub_input(prompt: str = "") -> str:
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+    monkeypatch.setattr(cli, "_readline_input", _stub_input)
+    rc = cli._interactive_menu()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "FAIL: codex/login" in out
+    # 'y' confirm → mode 선택 단계 진입
+    assert "mode 선택" in out
 
 
 def test_interactive_menu_eof_exits_zero(monkeypatch, capsys, stub_check_env):
@@ -37,7 +95,9 @@ def test_interactive_menu_eof_exits_zero(monkeypatch, capsys, stub_check_env):
     rc = cli._interactive_menu()
     assert rc == 0
     out = capsys.readouterr().out
-    assert "환경 점검" in out
+    # env 4/4 OK stub이라 "환경 점검: 활성 ..." 단락은 print 안 됨 (정상 진행).
+    # mode 선택 단계까지 도달 → EOFError로 종료 검증.
+    assert "mode 선택" in out
     assert "Traceback" not in out
 
 
