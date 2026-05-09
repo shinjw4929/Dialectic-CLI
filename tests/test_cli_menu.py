@@ -225,7 +225,7 @@ def test_interactive_menu_task_prompt_shows_example(monkeypatch, capsys, stub_ch
     rc = cli._interactive_menu()
     assert rc == 0
     out = capsys.readouterr().out
-    assert "다익스트라" in out
+    assert "유클리드" in out
     assert "도움말" in out
 
 

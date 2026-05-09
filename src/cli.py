@@ -518,8 +518,7 @@ def _interactive_menu_body() -> int:
     else:
         print(
             "task: 한 줄로 작업 의도. "
-            "예: '다익스트라 최단거리 알고리즘 Python 예제를 작성해줘. "
-            "이때 아스키 아트로 매 턴 시각적 검증이 될 수 있도록 해줘'"
+            "예: '두 양의 정수의 최대공약수를 유클리드 호제법으로 구하는 Python 함수'"
         )
         print("'?'=도움말, Ctrl-C=종료. 한글 입력 시 IME 조립 결함으로 일부 char가 buffer에 누락될 수 있음 — 진행 확인 단계의 task echo back 시각 검증 권장.")
 
