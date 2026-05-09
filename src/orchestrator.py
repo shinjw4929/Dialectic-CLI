@@ -77,6 +77,24 @@ MAX_TURNS_HARD_CAP = 20
 # subprocess 호출 timeout (code-conventions §3 — 명시 필수, 무한대 차단).
 DEFAULT_TIMEOUT_S = 300
 
+# ADR-6 SSOT: Dialectic-CLI repo 루트 자체 + 그 하위 경로는 workdir 사용 금지.
+# claude/codex가 cwd부터 부모 dir까지 CLAUDE.md/AGENTS.md auto-discovery → 개발용 .md
+# 누수. run_session 진입 시 hard reject + cli.py `_input_workdir`도 동일 predicate
+# 공유로 mkdir 전 UX-level 조기 거부 (orphan dir 잔존 차단).
+DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def is_under_repo_root(path: Path) -> bool:
+    """`path`(resolved 권장)가 Dialectic-CLI repo 루트 자체이거나 그 하위인지 판정.
+
+    호출자 책임으로 `path = path.resolve()` 권장 — relative path는 cwd 기준 해석되며
+    repo 안에서 호출 시 `Path("foo").resolve()`가 repo 하위로 떨어짐.
+
+    SSOT: 본 helper가 ADR-6 차단 조건의 단일 진실원. orchestrator(`run_session` 진입 검증)
+    + cli helper(`_input_workdir` 조기 거부) 모두 본 함수 호출 (P-VENDOR 회피).
+    """
+    return path == DIALECTIC_REPO_ROOT or DIALECTIC_REPO_ROOT in path.parents
+
 
 def SENTINEL_META(
     workdir: Path | str,
@@ -703,11 +721,9 @@ def run_session(args: argparse.Namespace) -> int:
     spec_path: Path | None = None
 
     # ADR-6 우회 차단: --workdir이 Dialectic-CLI repo 루트 OR 그 하위 경로일 때 종료.
-    # claude/codex가 cwd부터 부모 dir까지 CLAUDE.md/AGENTS.md auto-discovery하므로
-    # repo_root/src, repo_root/plan, repo_root/docs 등 하위 cwd도 부모 검색 시 개발용 .md 누수.
+    # 판정 predicate는 모듈 top `is_under_repo_root` SSOT — cli `_input_workdir`도 공유.
     # mkdtemp가 TMPDIR=repo 하위 edge에서 생성한 임시 dir도 leak 차단 (cleanup 후 SystemExit).
-    DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
-    if workdir == DIALECTIC_REPO_ROOT or DIALECTIC_REPO_ROOT in workdir.parents:
+    if is_under_repo_root(workdir):
         # C-008 surface 확장 (plan 010 phase-c 발견): --workdir 미지정 시 _resolve_workdir이
         # auto-resolve한 base_dir이 env-driven으로 repo 하위(`DIALECTIC_RUNS_DIR=<repo>/runs`)이면
         # mkdtemp가 사용자 의도와 무관하게 leak. cleanup flag와 무관하게 auto-resolved 경우 차단.

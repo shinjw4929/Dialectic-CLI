@@ -169,3 +169,70 @@ def test_input_workdir_eof(monkeypatch):
     monkeypatch.setattr(cli, "_readline_input", _seq_factory([]))
     with pytest.raises(cli._MenuExit):
         cli._input_workdir()
+
+
+# ADR-6 — repo 하위 차단 (mkdir 전 조기 거부, orchestrator predicate 공유)
+
+
+def test_input_workdir_relative_under_repo_rejected(monkeypatch, tmp_path, capsys):
+    """relative path가 cwd(=repo) 기준 repo 하위로 resolve → mkdir 미발생, 안내 + retry.
+
+    재현: 사용자가 menu에서 `2`/`test3` 입력 시 `Path.resolve()`가 cwd 기준 — Dialectic-CLI
+    repo 안에서 실행되면 repo 하위 경로로 떨어져 ADR-6 위반. 본 테스트는 cwd를 repo 루트로
+    chdir 후 relative name 입력 → mkdir 차단 + 재입력으로 tmp_path 통과 확인.
+    """
+    from src import orchestrator
+    monkeypatch.chdir(orchestrator.DIALECTIC_REPO_ROOT)
+    target_name = "test_input_workdir_relative_xyz"
+    target = orchestrator.DIALECTIC_REPO_ROOT / target_name
+    monkeypatch.setattr(
+        cli, "_readline_input", _seq_factory([target_name, str(tmp_path)])
+    )
+    result = cli._input_workdir()
+    assert result == str(tmp_path.resolve())
+    assert not target.exists(), "mkdir이 차단 전에 실행되면 안 됨 (orphan dir 잔존 방지)"
+    out = capsys.readouterr().out
+    assert "ADR-6" in out
+    assert "repo 하위 경로" in out
+
+
+def test_input_workdir_absolute_under_repo_rejected(monkeypatch, tmp_path, capsys):
+    """절대 경로가 repo 하위여도 동일 차단 (relative resolve와 무관하게 predicate 적용)."""
+    from src import orchestrator
+    target = orchestrator.DIALECTIC_REPO_ROOT / "test_input_workdir_abs_xyz"
+    monkeypatch.setattr(
+        cli, "_readline_input", _seq_factory([str(target), str(tmp_path)])
+    )
+    result = cli._input_workdir()
+    assert result == str(tmp_path.resolve())
+    assert not target.exists()
+    out = capsys.readouterr().out
+    assert "ADR-6" in out
+
+
+def test_input_workdir_repo_root_itself_rejected(monkeypatch, tmp_path, capsys):
+    """repo 루트 자체 입력 → 동일 차단 (is_under_repo_root: 자기 자신 포함)."""
+    from src import orchestrator
+    monkeypatch.setattr(
+        cli, "_readline_input",
+        _seq_factory([str(orchestrator.DIALECTIC_REPO_ROOT), str(tmp_path)]),
+    )
+    result = cli._input_workdir()
+    assert result == str(tmp_path.resolve())
+    out = capsys.readouterr().out
+    assert "ADR-6" in out
+
+
+def test_input_workdir_existing_dir_under_repo_rejected(monkeypatch, tmp_path, capsys):
+    """이미 존재하는 repo 하위 디렉토리(예: src/)도 차단 — 기존 분기 통과 X 확인."""
+    from src import orchestrator
+    existing_under_repo = orchestrator.DIALECTIC_REPO_ROOT / "src"
+    assert existing_under_repo.is_dir()
+    monkeypatch.setattr(
+        cli, "_readline_input",
+        _seq_factory([str(existing_under_repo), str(tmp_path)]),
+    )
+    result = cli._input_workdir()
+    assert result == str(tmp_path.resolve())
+    out = capsys.readouterr().out
+    assert "ADR-6" in out

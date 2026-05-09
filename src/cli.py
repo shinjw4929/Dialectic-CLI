@@ -276,13 +276,15 @@ def _input_workdir() -> str | None:
     빈 입력(Enter) → None 반환 (orchestrator 자동 생성 —
     `~/.local/share/dialectic/runs/<...>` default, `DIALECTIC_RUNS_DIR`/`XDG_DATA_HOME` env override).
     그 외 입력 → 경로로 해석:
-      - 존재하는 디렉토리 → resolve된 절대 경로 반환
+      - 존재하는 디렉토리 → resolve 후 ADR-6 검사, 통과 시 절대 경로 반환
       - 존재하는 파일 → 거부 + 재입력
-      - 존재 X → 생성 확인 [Y/n]: Y/Enter → mkdir + 반환, n → 재입력
+      - 존재 X → ADR-6 검사 우선, 통과 시 생성 확인 [Y/n]: Y/Enter → mkdir + 반환, n → 재입력
 
-    repo-root 차단은 본 helper의 책임 X — orchestrator `:616-625`의
-    `DIALECTIC_REPO_ROOT` SystemExit이 SSOT (단일 진실원 보존, P-VENDOR 회피).
-    사용자가 repo-root 입력 시 orchestrator 진입 직후 SystemExit으로 차단됨.
+    ADR-6 차단 규칙 SSOT는 `orchestrator.is_under_repo_root` — 본 helper는 동일 predicate
+    를 import해 mkdir 직전에 조기 거부 (orphan dir 잔존 + UX 혼란 차단). 규칙 본문은
+    여전히 orchestrator (`run_session` 진입 SystemExit), 본 helper는 UX-level 미러.
+    `Path(raw).resolve()`는 cwd 기준 — Dialectic-CLI repo 안에서 실행 시 relative path
+    (`2`, `test3`)가 repo 하위로 떨어지는 상황을 차단.
 
     EOF/Ctrl-C → `_safe_input`이 종료 확인 prompt → `_MenuExit` propagate.
     """
@@ -299,6 +301,14 @@ def _input_workdir() -> str | None:
             continue
         if path.is_file():
             print(f"파일은 workdir로 사용 불가: {path} — 다시.")
+            continue
+        if orchestrator.is_under_repo_root(path):
+            print(
+                f"Dialectic-CLI repo 하위 경로는 workdir로 사용 불가 ({path}, ADR-6) — "
+                "claude/codex가 부모 dir CLAUDE.md/AGENTS.md를 auto-discovery해 개발용 "
+                ".md가 런타임 prompt에 누수됨. 절대 경로로 repo 밖을 지정하거나 Enter로 "
+                "자동 생성을 사용하십시오."
+            )
             continue
         if path.is_dir():
             return str(path)
@@ -370,8 +380,9 @@ def _interactive_menu() -> int:
     plan 009 산출 보존: Namespace `interactive="critical"` (CLI default `end-only`와 별개).
 
     workdir repo-root 차단은 ADR-6 SSOT — `docs/dev-docs/architecture.md` ADR-6 +
-    `src/orchestrator.py:616-625` `DIALECTIC_REPO_ROOT` SystemExit 단일 진실원.
-    메뉴 helper(`_input_workdir`)는 입력만 수집하고 검증을 위임 (P-VENDOR 회피).
+    `src/orchestrator.is_under_repo_root` predicate가 단일 진실원. orchestrator
+    `run_session` 진입 SystemExit이 final gate, `_input_workdir`은 동일 predicate를
+    import해 mkdir 전 UX-level 조기 거부 (orphan dir 잔존 + 사용자 혼란 차단).
 
     `_safe_input`이 모든 input을 wrap — EOF/Ctrl-C 시 종료 확인 prompt + 'n' retry
     + 종료 확인 EOF/Ctrl-C 시 `_MenuExit` (의지 확정).

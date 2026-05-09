@@ -44,8 +44,9 @@ A 층(개발용 .md) ↔ B 층(런타임 prompt) 누수 차단 — `outline/01-h
 # 폴더명 = "<YYYYMMDD-HHMMSS>-<8char>" (mkdtemp suffix가 short-id, 1초 내 collision 0)
 workdir = _resolve_workdir(args)
 
-DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
-if workdir == DIALECTIC_REPO_ROOT or DIALECTIC_REPO_ROOT in workdir.parents:
+# 모듈 top SSOT — DIALECTIC_REPO_ROOT 상수 + is_under_repo_root(path) predicate.
+# cli `_input_workdir`도 동일 helper를 import해 mkdir 전 UX-level 조기 거부 (P-VENDOR 회피).
+if is_under_repo_root(workdir):
     raise SystemExit(
         f"--workdir이 Dialectic-CLI repo 루트 또는 그 하위 경로({workdir})입니다 (ADR-6). "
         f"별도 경로를 지정하거나 --workdir 미지정으로 임시 dir 자동 생성을 사용하십시오."
@@ -58,6 +59,8 @@ cleanup = False  # --workdir 미지정 시에도 결과 보존 (사용자 확인
 **default 경로 narrative**: `/tmp/dialectic-XXXX` (post-mkdtemp) → `~/.local/share/dialectic/runs/<...>` (plan 010 Phase C). `/tmp` 후보 기각 근거 — reboot 시 휘발 + 비-Linux WSL2/macOS에서 위치 비일관. `/mnt/c` 기각 — WSL Windows mount 권한·case-sensitivity 결함. repo 하위 기각 — ADR-6 위반 (본 §Layer 2가 차단). XDG가 4 후보 중 유일하게 안전·표준 (memory `project_plan_010_workdir_default.md`).
 
 **ADR-6 차단 범위**: `--workdir` CLI + `DIALECTIC_RUNS_DIR` env + `XDG_DATA_HOME`/`~/.local/share` default 어느 경로든 repo 루트 또는 하위 경로일 때 `run_session` 진입 직후 SystemExit. base_dir 자체가 repo 하위이면 mkdtemp가 repo 하위 임시 dir을 생성한 직후 차단되므로 `cleanup` 시 leak 차단(C-008).
+
+**UX-level 조기 거부 (cli `_input_workdir`)**: 인터랙티브 메뉴는 동일 `is_under_repo_root` predicate를 import해 mkdir 직전 + 기존 dir 분기 직전에 차단한다. 사용자가 Dialectic-CLI repo 안에서 실행 후 relative path(`2`, `test3`)를 입력하면 `Path.resolve()`가 cwd 기준으로 repo 하위로 떨어지는데, 이 경우 mkdir 후 orchestrator가 SystemExit하면 orphan dir이 잔존(+ 사용자 혼란)함. helper 공유로 mkdir 전에 거부 + ADR-6 사유 1줄 안내 + 재입력. **차단 규칙 본문은 여전히 orchestrator SSOT** — UI 거부는 미러 (P-VENDOR 회피, predicate 단일 진실원).
 
 `Path.resolve()`로 symlink + 상대경로 해소 → `workdir`이 항상 절대 정규 경로. `meta.workdir = str(workdir)` 박힘 (재현성).
 
@@ -140,6 +143,7 @@ def test_cwd_isolation_adr6(tmp_path):
 |---|---|
 | 새 어댑터 추가 (mock 등) | 본 §Layer 1 표 + 본 §Layer 3 옵션 표 + `tests/test_cwd_isolation.py` 신규 어댑터 단언 |
 | `run_session` workdir 검증 변경 | 본 §Layer 2 + `orchestrator.md` §run_session + `tests/test_cwd_isolation.py::test_run_session_rejects_repo_root_workdir` |
+| `is_under_repo_root` predicate 변경 (모듈 top SSOT) | 본 §Layer 2 + `orchestrator.md` 헬퍼 표 + `cli.py::_input_workdir` 거부 분기 + `tests/test_interactive_menu_expansion.py::test_input_workdir_*_rejected` 4건 |
 | `_resolve_workdir` 우선순위 표 변경 (env 키, default 경로) | 본 §Layer 2 우선순위 박스 + `orchestrator.md` `_resolve_workdir` + `runtime-docs/systems/run-mode.md §1 --workdir 행` + `tests/test_workdir_default.py` 5건 단언 + `README.md` 5초 데모·CLI 옵션 표 |
 | ADR-9 `disable_bare` 토글 도입 (Day 4) | 본 §Layer 3 claude 행 + `agents.md` ClaudeRunner cmd_list + `architecture.md` ADR-9 |
 | 통합 시나리오 강화 (Day 3+ mock 활용) | 본 §검증 + `phase-d-tests.md` (또는 후속 plan) |
