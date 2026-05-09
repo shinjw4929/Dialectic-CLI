@@ -158,10 +158,10 @@ flowchart TD
     Task --> Impl["계획 구현 모드 (implement)<br/>deep path · 2단계"]
     Task --> Compare["비교 모드 (compare)<br/>메타 분석"]
 
-    Run --> RunOut["구현자 (Codex) ↔ 기획 검토자 (Claude) ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
+    Run --> RunOut["구현자 (Codex) ↔ 코드 검토자 (Claude) ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
     Plan --> PlanOut["계획자 ↔ 계획 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/specs/&lt;task_id&gt;.md"]
     PlanOut -. 사용자 spec 검토·편집 .-> Impl
-    Impl --> ImplOut["구현자 ↔ 기획 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
+    Impl --> ImplOut["구현자 ↔ 코드 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
     Compare --> CompareOut["위 3개 모드 중 하나 + 매핑 변형 N개 병렬 실행<br/>산출물: logs/runs/&lt;ts&gt;/compare.md<br/>(대조표 + 자동 추출 차이)"]
 ```
 

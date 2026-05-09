@@ -118,7 +118,8 @@ dialectic logs --workdir /tmp/dialectic-demo --session 20260509T071838Z --full -
 ## 현재 동작 모드
 
 - **Day 2**: `run` 모드만 정식 검증 (driver+reviewer 한 턴 E2E + `[CONVERGED]` 자동 종료).
-- **Day 3+ 진행**: `--mode {run,plan,implement}` choices 확장 + 메뉴 5단계 노출 + `--interactive {end-only,critical,full}` mode dial + workdir 세션 격리 (plan 009/011 산출). `compare`는 별도 subcommand (미구현 — 후속 plan). `--mode plan`은 매 턴 planner 응답을 JSONL에 보존하면서 `<workdir>/specs/<slug>.md`로도 자동 저장 (plan 013 산출, top-level — session 격리 X. 충돌 시 `<slug>-<session_ts>.md` fallback. 후속 plan 014에서 implement 모드 입력으로 활용).
+- **Day 3+ 진행**: `--mode {run,plan,implement}` choices 확장 + 메뉴 5단계 노출 + `--interactive {end-only,critical,full}` mode dial + workdir 세션 격리 (plan 009/011 산출). `compare`는 별도 subcommand (미구현 — 후속 plan). `--mode plan`은 매 턴 planner 응답을 JSONL에 보존하면서 `<workdir>/specs/<slug>.md`로도 자동 저장 (plan 013 산출, top-level — session 격리 X. 충돌 시 `<slug>-<session_ts>.md` fallback).
+- **`--mode implement` wiring 활성** (plan 014): `dialectic run --mode implement --spec <path>` 또는 alias `dialectic implement --spec <path>` — spec.md 본문이 `build_prompt §2 TASK` 자리에 주입, driver(implementer) ↔ reviewer(spec-reviewer) 1턴 라이프사이클 + 매 턴 patch_apply (run 모드와 동일 흐름). `apply_patches`는 신규 파일 생성 분기 추가(`SEARCH=""` + 파일 부재 시 write_text + parent mkdir, 실패 rollback unlink) — dijkstra 등 빈 workdir 시나리오 작동. plan→implement chaining: `dialectic plan` 산출 `<workdir>/specs/<slug>.md`를 그대로 implement 입력으로 재진입.
 - **Day 3+**: 사용자 6지선다 UI, mock 어댑터, `compare --parallel`, `dialectic logs`.
 
 ---

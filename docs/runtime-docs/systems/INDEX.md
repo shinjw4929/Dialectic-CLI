@@ -10,7 +10,7 @@ Dialectic-CLI 런타임 모드별 진리문서 (B 층 — `outline/01-harness-la
 |---|---|---|---|---|---|
 | **run** | [run-mode.md](run-mode.md) | implementer / spec-reviewer | `[CONVERGED]` streak K (default 2) 또는 `--max-turns` 도달 | `<workdir>/<file>` 코드 + `logs/messages.jsonl` | **Day 2 정식 검증 ✓** |
 | **plan** | (Day 3+ 추가) | planner / plan-reviewer | run과 동일 | `<workdir>/specs/<slug>.md` (top-level — session 격리 X. 충돌 시 `<slug>-<session_ts>.md` fallback) | spec.md auto-save **plan 013 ✓** (`_resolve_spec_path` + `run_turn` spec_path wiring). 메뉴 wiring **plan 011 ✓** |
-| **implement** | (Day 3+ 추가) | implementer / spec-reviewer | run과 동일 | `<workdir>/<file>` 코드 (spec.md 입력) | 미구현 — `--spec @<path>` 입력 메커니즘 + `build_prompt` implement 분기 부재 |
+| **implement** | INDEX 매트릭스 + `protocol.md §5 :282-284` | implementer / spec-reviewer | run과 동일 | `<workdir>/<file>` 코드 (spec.md 본문이 §2 TASK 자리에 주입, run과 동일 patch_apply 흐름) | spec read·검증·substitution **plan 014 ✓**. 메뉴 단계 2 implement 분기 active |
 | **compare** | (Day 4+ 추가) | (run/plan/implement 중 선택) | 병렬 실행 후 `compare.md` 생성 | `logs/runs/<ts>/compare.md` | 메타 모드 — `MODE_ROLES["compare"]` 키 부재가 의도된 설계 (별도 dispatcher) |
 
 ## 변경 시 갱신 매핑

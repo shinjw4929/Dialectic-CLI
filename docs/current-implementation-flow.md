@@ -8,8 +8,8 @@
 
 | 영역 | 현재 상태 | 정본 |
 |---|---|---|
-| CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic doctor`, `dialectic logs` (plan 010 Phase A — `--workdir/--session/--tail/--follow/--kind/--full`) | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
-| 실행 모드 | `run`/`plan`/`implement` CLI 노출 (plan 011, compare는 별도 subcommand 미구현) | [run mode](runtime-docs/systems/run-mode.md) |
+| CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic implement --spec <path>` (plan 014 — alias subparser), `dialectic doctor`, `dialectic logs` (plan 010 Phase A — `--workdir/--session/--tail/--follow/--kind/--full`) | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
+| 실행 모드 | `run`/`plan`/`implement` CLI 노출 + 메뉴 (plan 011 + plan 014 — implement 모드 wiring 활성: `--mode implement --spec <path>` 또는 `dialectic implement --spec <path>` alias, spec.md 본문이 `build_prompt §2 TASK` 자리에 substitution; compare는 별도 subcommand 미구현) | [run mode](runtime-docs/systems/run-mode.md) |
 | 포지션 | `driver` → `reviewer` | [protocol](runtime-docs/protocol.md#10-포지션-vs-역할-vs-벤더-3축-분리) |
 | `--interactive` 모드 | `end-only` (CLI default) / `critical` (메뉴 default, Ctrl+F 트리거 + 종료 직전 prompt) / `full` (매 턴 6지선다) | [run mode §1](runtime-docs/systems/run-mode.md#1-명령-표면) |
 | 로그 | `<workdir>/<UTC ts>/messages.jsonl` + `<workdir>/<UTC ts>/sessions/*.jsonl` (plan 011 Bug 2 fix — 매 호출 session 폴더 격리) | [jsonl-bus](dev-docs/systems/jsonl-bus.md) |

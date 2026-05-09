@@ -11,7 +11,7 @@
 | 단계 | 역할 | 본 도구의 매핑 |
 |---|---|---|
 | **Thesis** | 첫 제안 | driver 포지션의 에이전트 (구현자 또는 계획자) |
-| **Antithesis** | 비판적 응답 | reviewer 포지션의 에이전트 (기획 검토자 또는 계획 검토자) |
+| **Antithesis** | 비판적 응답 | reviewer 포지션의 에이전트 (코드 검토자 또는 계획 검토자) |
 | **Synthesis** | 두 입장의 통합 | **사용자** — 매 턴 6지선다 + free-text directive로 새 방향 생성 |
 
 핵심 차별점: **사용자는 단순 approver가 아니라 synthesis 생성자**. Synthesis는 다음 턴 양쪽 prompt에 `HISTORY` + `directive`로 주입되어, 다음 thesis와 antithesis의 출발점이 된다. 사용자가 빠지면 dialectic 자체가 성립하지 않는다.
@@ -22,7 +22,7 @@
 stateDiagram-v2
     [*] --> Thesis: turn N 시작
     Thesis: Thesis<br/>driver agent<br/>(구현자 / 계획자)
-    Antithesis: Antithesis<br/>reviewer agent<br/>(기획 검토자 / 계획 검토자)
+    Antithesis: Antithesis<br/>reviewer agent<br/>(코드 검토자 / 계획 검토자)
     Synthesis: Synthesis<br/>USER<br/>6지선다 + free-text directive
 
     Thesis --> Antithesis: kind=proposal<br/>messages.jsonl append
@@ -86,10 +86,10 @@ flowchart TD
     Task --> Impl["계획 구현 모드 (implement)<br/>deep path · 2단계"]
     Task --> Compare["비교 모드 (compare)<br/>메타 분석"]
 
-    Run --> RunOut["구현자 ↔ 기획 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
+    Run --> RunOut["구현자 ↔ 코드 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
     Plan --> PlanOut["계획자 ↔ 계획 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/specs/&lt;task_id&gt;.md"]
     PlanOut -. 사용자 spec 검토·편집 .-> Impl
-    Impl --> ImplOut["구현자 ↔ 기획 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
+    Impl --> ImplOut["구현자 ↔ 코드 검토자 ↔ 사용자<br/>산출물: &lt;workdir&gt;/&lt;file&gt;.py 등 코드"]
     Compare --> CompareOut["위 3개 모드 중 하나 + 매핑 변형 N개를 병렬 실행<br/>산출물: logs/runs/&lt;ts&gt;/compare.md<br/>(대조표 + 자동 추출 차이)"]
 ```
 
@@ -99,6 +99,8 @@ flowchart TD
 | plan | 큰 task, 명세부터 신중하게 | planner | plan-reviewer |
 | implement | spec.md 이미 있는 task | implementer | spec-reviewer |
 | compare | 매핑/모드 변종 정량 비교 | (선택 모드 따름) | (선택 모드 따름) |
+
+**모드별 명령 표면** (plan 014 wiring): `run`/`plan`은 `dialectic <mode> --task <text>` (또는 `dialectic run --mode {run,plan} ...`). `implement`는 `dialectic implement --spec <path>` alias subparser 또는 `dialectic run --mode implement --spec <path>` — spec.md 본문이 `build_prompt §2 TASK` 자리에 substitution. plan→implement chaining은 plan 모드 산출 `<workdir>/specs/<slug>.md` (plan 013) → 사용자 검토·편집 → implement 모드 입력으로 동일 메커니즘 재진입.
 
 **slot ↔ role ↔ vendor 3축 분리**: 포지션(driver/reviewer)은 protocol 고정, 역할(4종)은 모드별 자동 매핑, 벤더(codex/claude/mock)는 사용자 자유. 모드가 추가되어도 schema가 안정. 상세는 `docs/runtime-docs/protocol.md` §1.0.
 
