@@ -143,7 +143,15 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 **implement 모드 wiring** (plan 014): `args.mode == "implement"` 진입 시 `run_session`은 `_task_msg` 호출 직전(`bus = Bus(...)` 직후)에 `args.spec` 4종 검증 + spec body substitution을 수행. 검증 4종(None/missing-or-directory/UnicodeDecodeError/whitespace-only) 모두 `SystemExit` 친화 메시지로 차단 (JSONL 빈 상태 — clean exit). 정상 spec → `spec_path.read_text(encoding="utf-8")` 본문을 `args.task`에 substitute → 그 후 정상 흐름(`_task_msg` → `bus.append`)로 진입. 효과: build_prompt §2 TASK 자리에 spec 본문이 일관 주입되어 별도 `build_prompt` 분기 불필요 (`_task_msg` / `protocol.md §5 :282-284` 1:1 정합). spec 위치는 read-only이므로 cwd auto-discovery 영향 0 (ADR-6 무관). plan 모드 `_resolve_spec_path` 산출(`<workdir>/specs/<slug>.md`)이 자연스러운 입력 — `dialectic plan` 후 `dialectic implement --spec <위 경로>` chaining. CLI surface 2종 path: ① `dialectic run --mode implement --spec <path>` ② `dialectic implement --spec <path>` alias subparser (`set_defaults(mode="implement", task="")` — argparse Namespace 동등, `tests/test_implement_spec.py::test_implement_alias_argparse_equivalence` 보호).
 
-`run_session` 종료 시 stderr 안내(`finally` 블록)에 spec.md 경로 1줄 추가 — `mode==plan` + `spec_path.exists()` 시점에만 노출(빈 응답·write 실패 시 미노출). 사용자가 messages.jsonl과 함께 spec.md 산출물을 즉시 확인하는 통로. spec_path 변수는 함수 상단(`cleanup = False` 직후)에 `None`으로 사전 선언 — `try` 블록 외부 가시성 확보.
+`run_session` 종료 시 stderr 안내(`finally` 블록)는 4 항목 노출:
+1. session 보존 경로 (`session_dir` + `messages.jsonl` + `sessions/`)
+2. `spec.md:` — `mode==plan` + `spec_path.exists()` 시점만 (plan 013)
+3. `reason:` — bus 마지막 `kind=meta` 메시지 content (`auto_end_converged` / `auto-end (max-turns reached)` / `auto_end_user` / `auto-end (error: ...)` 등). 사용자가 ADR-9 자동 종료(K=2 [CONVERGED] streak)와 의도적 종료를 구분할 통로.
+4. `files_changed:` — `bus.read_all()` 순회로 `kind=patch_applied` + `apply_status=="ok"` 메시지의 `meta.files_changed` union (workdir 절대 경로). 사용자가 산출 파일 즉시 확인.
+
+**implement 모드 silent failure 차단**: turn loop 진입(즉 spec 검증 통과) 후 `files_changed` 누적이 0건이면 `SystemExit(2)` + 친절 에러 메시지 (driver fence 형식 미준수 / apply_status=failed 진단 가이드 + messages.jsonl 경로 안내). spec 검증 raise 시점과 구분하기 위해 `entered_turn_loop` flag 사용 — `_run_session_*` 호출 직전에 `True` set, finally는 `True`일 때만 `files_changed=0` check (spec 검증 SystemExit 메시지 보존). plan 014 사용자 시연에서 driver(implementer)가 신규 파일 fence 없이 단순 ` ```python ... ``` ` markdown만 응답해 silent로 파일 미생성된 결함 catch.
+
+spec_path 변수는 함수 상단(`cleanup = False` 직후)에 `None`으로 사전 선언 — `try` 블록 외부 가시성 확보. `entered_turn_loop`도 동일 위치에 `False` 사전 선언.
 
 **UI wiring** (plan 008-ui-polish): driver/reviewer 호출은 `with stdin_canonical_off(), Spinner(...)` 중첩으로 wrap — Spinner는 stderr 진행 표시(`[{ROLE_LABEL_KO[role]}: {VENDOR_LABEL[runner.name]}] running... ⠋`, outline/03-ux §3.2:190 SSOT 1:1, isatty 가드 보유), `stdin_canonical_off`은 호출 동안 사용자 키 누름이 line으로 완성되어 다음 prompt에 누수되는 결함 차단(line discipline off + drain thread + INTR `\x03` 감지 시 SIGINT raise). 단계 종료 후 KeyboardInterrupt는 `cli._interactive_menu`의 `run_session` try/except까지 propagate되어 종료 확인 prompt로 처리(`_safe_input`과 동일 패턴). proposal/critique 정상 응답 시 `bus.append` 직후 `src/ui.py:print_message`로 stdout에 구분선·헤더(`✓ {latency}s · {tokens}` + cost optional)·본문 출력. ANSI 색상 outline §3.5:362 (proposal=cyan, critique=yellow). `kind in ("proposal", "critique")`만 처리 — 빈 응답·error 분기는 stdout 출력 X (후속 plan 검토).
 

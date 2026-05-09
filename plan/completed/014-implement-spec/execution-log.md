@@ -54,9 +54,26 @@
 - [ ] dijkstra 실 시연 — 사용자 명시 후 (deferred, API 비용)
 
 ## 후처리 메모
-- 최종 pytest: 199 passed / 3 skipped / 1 deselected (회귀 0)
-- plan 014 신규 테스트 누적: A 7 + B 5 + D 6 + C alias 3 + C chaining 3 + P1 fix 1 = 25 (DoD ≥18 충족)
+- 최종 pytest: 200 passed / 3 skipped / 1 deselected (회귀 0)
+- plan 014 신규 테스트 누적: A 7 + B 5 + D 6 + C alias 3 + C chaining 3 + P1 fix 1 + 정규식 회귀 차단 1 = 26 (DoD ≥18 충족)
 - plan/014-implement-spec/ → plan/completed/014-implement-spec/ 이동 완료
+
+## 사후 hot-fix (사용자 수동 시연 catch — plan 014 P0 보강)
+
+dijkstra 실 시연(`/home/sjw49/test4` workdir, claude→codex)에서 발견된 결함 6건:
+1. **메뉴 단계 3 안내문 mode 분기** (`src/cli.py:498-507`) — implement 모드인데 task 안내문(`다익스트라 ... IME 결함`) 출력. mode-aware 분기로 spec 안내문 별도
+2. **`ROLE_LABEL_KO["spec-reviewer"]` rename** (`src/ui.py:58` + tests + docs 일괄) — "기획 검토자" → "코드 검토자". plan-reviewer "계획 검토자"와 의미 구분 (사용자 implement 모드에서 plan-reviewer 매핑 결함으로 오인)
+3. **`_PATCH_PATTERN` 빈 SEARCH 매칭 결함** (`src/patch_apply.py:21-30`) — 기존 정규식 `(?P<search>.*?)\n={7}`이 search 직전 `\n` 강제 → 신규 파일 fence(`<<<<<<< SEARCH\n=======\n` 직접 인접) 매칭 0건. plan 014 Phase D는 `apply_patches`만 고치고 `extract_patches` 정규식 미수정 — 단위 테스트가 dict 직접 입력으로 우회. **fix**: `(?:(?P<search>.+?)\n)?` alternation + `extract_patches`에서 None→"" 변환 + `test_extract_new_file_empty_search` 회귀 차단
+4. **markdown fence wrapping** (`src/patch_apply.py:21-30`) — driver(LLM)가 `FILE:\n```\n<<<<<<< SEARCH...` 형태로 markdown ``` 한 줄 끼워넣어 정규식 깨짐. **fix**: `(?:`{3}[^\n]*\n)?` optional fence 흡수
+5. **종료 stderr 안내 보강** (`src/orchestrator.py:847-899`) — finally 블록에 `reason:` (bus 마지막 meta 메시지 content) + `files_changed:` (apply_status="ok" union) 출력. 사용자 ADR-9 자동 종료 인지 + 산출 파일 즉시 확인
+6. **implement 모드 silent failure 차단** (`src/orchestrator.py:711-715` + `:891-899`) — turn loop 진입 후 files_changed 0건이면 SystemExit(2) + 친절 진단 메시지. `entered_turn_loop` flag로 spec 검증 raise와 구분 (메시지 보존)
+7. **roles/implementer.md:78-83 셀프체크 강화** — markdown fence만 응답 금지 narrative + FILE↔SEARCH 사이 fence 금지
+
+추가 환원:
+- `validation.md` C-005 R3 사례 (`OSError` 미catch, plan 014 Phase B spec read) 추가 — 3회 누적 임계 도달, R-NNN 승격 검토 진입
+- `validation.md` C-016 신규 후보 — "단위 테스트가 정규식 추출 단계 우회 → end-to-end 회귀 누락 패턴" (plan 014 시연으로 발견). raw 입력 통합 테스트 의무화 권고
+
+검증: 사용자 dijkstra `/home/sjw49/test5/dijkstra.py` 실제 생성 확인 (`reason: auto_end_user` + `files_changed: ...` stderr 출력). plan 014 DoD dijkstra 실 시연 ✓.
 
 ## 진행 메모
 - Phase A·D는 한 메시지 두 Agent 병렬 분기 — 의존 0 검증

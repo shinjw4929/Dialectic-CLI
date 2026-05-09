@@ -18,19 +18,23 @@
 ```python
 _PATCH_PATTERN = re.compile(
     r"FILE:\s*(?P<file>\S+)\s*\n"
+    r"(?:`{3}[^\n]*\n)?"
     r"<{7}\s*SEARCH\s*\n"
-    r"(?P<search>.*?)"
-    r"\n={7}\s*\n"
-    r"(?P<replace>.*?)"
-    r"\n>{7}\s*REPLACE",
+    r"(?:(?P<search>.+?)\n)?"
+    r"={7}\s*\n"
+    r"(?:(?P<replace>.+?)\n)?"
+    r">{7}\s*REPLACE",
     re.DOTALL,
 )
 ```
 
 - 마커 카운트 7-character (`<<<<<<<` / `=======` / `>>>>>>>`) — `protocol.md §2:86` + `roles/implementer.md:78` 1:1, 변형 금지.
-- named groups (`file` / `search` / `replace`) — `protocol.md §2:86` patches dict 키와 1:1.
+- named groups (`file` / `search` / `replace`) — `protocol.md §2:86` patches dict 키와 1:1. `extract_patches`에서 `match.group("search") or ""`로 None→"" 변환 (신규 파일 fence는 search 그룹 미캡처 → None 반환됨).
+- **빈 SEARCH alternation** `(?:(?P<search>.+?)\n)?` — 신규 파일 의도(`<<<<<<< SEARCH\n=======\n` 직접 인접) 매칭. plan 014 Phase D end-to-end 보강(이전 정규식은 `\n={7}` 강제로 빈 SEARCH 매칭 0건 → driver 신규 파일 fence가 silent 0건 추출됨).
+- **markdown fence wrapping 1단 허용** `(?:`{3}[^\n]*\n)?` — driver(LLM)가 ```` FILE:\n```\n<<<<<<< SEARCH ```` 형태로 fence 마커 외부에 markdown ` ``` ` 한 줄 끼워넣어도 흡수. 같은 fence wrapping이 REPLACE 끝에 있어도 `>{7}\s*REPLACE` 이후 무관(매칭 종료점 보존). plan 014 사용자 시연에서 발견된 driver 응답 패턴 — 셀프체크는 평문 우선이지만 정규식이 fallback으로 catch.
 - non-greedy `.+?` + `re.DOTALL` — 한 응답에 다중 블록 매칭.
 - `\S+` (file 경로) — 공백 포함 경로 비지원 정책. `FILE: my file.py` 같은 헤더는 패턴 매칭 실패 → 해당 블록 미포함 (silent 누락, driver self-check 책임). 향후 인용 형식(`FILE: "<path>"`)은 별도 plan으로 deferred.
+- **driver self-check fallback**: `roles/implementer.md:78` 셀프체크가 강화된 형식 강제(신규 파일·기존 파일 둘 다 fence 형식 + FILE↔SEARCH 사이 markdown fence 금지). 그러나 driver가 형식 무시하고 단순 ` ```python ... ``` `만 응답하면 정규식 catch 불가 — `run_session` finally의 `files_changed=0 SystemExit`이 사용자 인지 통로.
 
 ## `apply_patches` 4 단계 (all-or-nothing)
 

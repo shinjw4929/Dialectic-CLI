@@ -722,6 +722,10 @@ def run_session(args: argparse.Namespace) -> int:
     # 실제 계산은 mode==plan 분기에서 try 내부 (session_ts 산출 후).
     spec_path: Path | None = None
 
+    # finally 블록 files_changed=0 SystemExit 가드 — turn loop 진입 직전 True.
+    # spec 검증 raise(SystemExit) 시점에는 False 유지 → finally에서 implement check skip.
+    entered_turn_loop = False
+
     # ADR-6 우회 차단: --workdir이 Dialectic-CLI repo 루트 OR 그 하위 경로일 때 종료.
     # 판정 predicate는 모듈 top `is_under_repo_root` SSOT — cli `_input_workdir`도 공유.
     # mkdtemp가 TMPDIR=repo 하위 edge에서 생성한 임시 dir도 leak 차단 (cleanup 후 SystemExit).
@@ -818,6 +822,9 @@ def run_session(args: argparse.Namespace) -> int:
         # outline/02 §2.9: reviewer [CONVERGED] streak K 도달 시 auto_end_converged.
         streak = 0
 
+        # turn loop 진입 표시 — finally 블록에서 spec 검증 raise vs 정상 진행 후 산출 0 구분.
+        entered_turn_loop = True
+
         if args.interactive == "end-only":
             return _run_session_end_only(
                 args, K, max_turns_runtime, bus,
@@ -857,7 +864,51 @@ def run_session(args: argparse.Namespace) -> int:
             ]
             if spec_path is not None and spec_path.exists():
                 lines.append(f"  spec.md:        {spec_path}")
+            # 종료 사유 안내 — 마지막 kind=meta 메시지 content (auto_end_converged / max-turns reached / auto-end error 등).
+            # 사용자 의도(max-turns) ↔ 자동 종료(K streak) 차이 인지 통로 — ADR-9 정책 보존 + UX.
+            try:
+                msgs_for_reason = bus.read_all()
+                last_meta = next(
+                    (m for m in reversed(msgs_for_reason) if m.kind == "meta"),
+                    None,
+                )
+                if last_meta is not None:
+                    lines.append(f"  reason:         {last_meta.content}")
+            except Exception:  # noqa: BLE001 - finally 안내는 best-effort
+                pass
+            # 산출 파일 누적 안내 — patch_applied 메시지의 files_changed union (apply_status="ok" 한정).
+            # implement 모드는 코드 산출이 본 모드의 핵심 → files_changed=[]는 silent failure 차단.
+            files_union: list[str] = []
+            try:
+                seen: set[str] = set()
+                for msg in bus.read_all():
+                    if msg.kind != "patch_applied":
+                        continue
+                    if getattr(msg.meta, "apply_status", None) != "ok":
+                        continue
+                    for f in (getattr(msg.meta, "files_changed", None) or []):
+                        if f not in seen:
+                            seen.add(f)
+                            files_union.append(f)
+                if files_union:
+                    lines.append("  files_changed:")
+                    for f in files_union:
+                        lines.append(f"    - {workdir}/{f}")
+            except Exception:  # noqa: BLE001 - finally 안내는 best-effort, 실패해도 session 경로는 보장
+                pass
             sys.stderr.write("\n".join(lines) + "\n")
+            # implement 모드 한정 — files_changed 0건이면 사용자 인지 가능한 SystemExit (silent failure 차단).
+            # driver 응답이 fence 형식 안 따라 extract_patches=0건이거나 모든 turn에서 apply_status=failed일 때 발생.
+            # entered_turn_loop=False면 spec 검증 단계에서 raise됨 — 별도 SystemExit 메시지 보존 (덮어쓰기 X).
+            if args.mode == "implement" and entered_turn_loop and not files_union:
+                sys.stderr.write(
+                    "\n[run_session] ERROR: implement 모드에서 단 하나의 파일도 생성·수정되지 않음.\n"
+                    "  원인 후보:\n"
+                    "    1. driver 응답이 search-replace fence 형식 미준수 (FILE: + <<<<<<< SEARCH / ======= / >>>>>>> REPLACE)\n"
+                    "    2. 모든 turn에서 apply_status=failed (search not found / path outside workdir 등)\n"
+                    f"  진단: messages.jsonl의 proposal/patch_applied 메시지 검토 — {session_dir}/messages.jsonl\n"
+                )
+                raise SystemExit(2)
 
 
 def _run_session_end_only(

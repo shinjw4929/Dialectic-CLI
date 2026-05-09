@@ -214,7 +214,19 @@ def test_implement_mode_spec_oserror_systemexit(tmp_path, monkeypatch):
 
 def test_implement_mode_spec_substitution(tmp_path, monkeypatch):
     """정상 spec → args.task가 spec body로 substitution됨 (JSONL turn_id=0 task content 검증)."""
-    _patch_runners(monkeypatch, driver_text="implementer body")
+    # mock implementer 응답에 신규 파일 fence 포함 — 산출 0이면 finally 블록의
+    # files_changed=0 SystemExit가 우선되어 본 단언 도달 X. fence로 1건 산출 보장.
+    _patch_runners(
+        monkeypatch,
+        driver_text=(
+            "implementer body\n\n"
+            "FILE: out.py\n"
+            "<<<<<<< SEARCH\n"
+            "=======\n"
+            "x = 1\n"
+            ">>>>>>> REPLACE\n"
+        ),
+    )
     spec = tmp_path / "input-spec.md"
     spec_body = "# Spec body content\n\n- step 1\n- step 2\n"
     spec.write_text(spec_body, encoding="utf-8")
@@ -458,7 +470,18 @@ def test_implement_alias_vs_mode_implement_equivalence(tmp_path, monkeypatch):
     spec.write_text(spec_body, encoding="utf-8")
 
     def _run_with_workdir(workdir: Path) -> list:
-        _patch_runners(monkeypatch, driver_text="implementer ack")
+        # mock implementer 응답에 신규 파일 fence — files_changed=0 SystemExit 회피.
+        _patch_runners(
+            monkeypatch,
+            driver_text=(
+                "implementer ack\n\n"
+                "FILE: out.py\n"
+                "<<<<<<< SEARCH\n"
+                "=======\n"
+                "x = 1\n"
+                ">>>>>>> REPLACE\n"
+            ),
+        )
         args = _build_implement_args(workdir, spec=str(spec))
         orchestrator.run_session(args)
         session_dirs = [

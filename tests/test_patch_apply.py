@@ -113,6 +113,27 @@ def test_extract_blank_line_in_search():
     assert patches[0]["replace"] == "REPLACED"
 
 
+def test_extract_new_file_empty_search():
+    """신규 파일 fence (SEARCH 본문 0) 추출 정합 — plan 014 Phase D end-to-end (실 호출 회귀 차단).
+
+    `<<<<<<< SEARCH\\n=======\\n` 직접 인접 시 search="" + replace=신규 파일 본문.
+    apply_patches 신규 파일 분기 진입 조건이라 추출 단계에서 0건이면 분기 자체 미진입.
+    """
+    text = (
+        "FILE: dijkstra.py\n"
+        "<<<<<<< SEARCH\n"
+        "=======\n"
+        "def dijkstra(graph, start):\n"
+        "    return {}\n"
+        ">>>>>>> REPLACE\n"
+    )
+    patches = extract_patches(text)
+    assert len(patches) == 1
+    assert patches[0]["file"] == "dijkstra.py"
+    assert patches[0]["search"] == ""
+    assert patches[0]["replace"] == "def dijkstra(graph, start):\n    return {}"
+
+
 # ─── apply_patches ──────────────────────────────────────────────────────────
 
 

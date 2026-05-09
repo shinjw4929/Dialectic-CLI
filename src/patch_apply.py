@@ -20,11 +20,12 @@ from pathlib import Path
 # 향후 인용 형식(`FILE: "<path>"`) + 형식 위반 명시 에러는 별도 plan으로 deferred.
 _PATCH_PATTERN = re.compile(
     r"FILE:\s*(?P<file>\S+)\s*\n"
+    r"(?:`{3}[^\n]*\n)?"
     r"<{7}\s*SEARCH\s*\n"
-    r"(?P<search>.*?)"
-    r"\n={7}\s*\n"
-    r"(?P<replace>.*?)"
-    r"\n>{7}\s*REPLACE",
+    r"(?:(?P<search>.+?)\n)?"
+    r"={7}\s*\n"
+    r"(?:(?P<replace>.+?)\n)?"
+    r">{7}\s*REPLACE",
     re.DOTALL,
 )
 
@@ -64,8 +65,8 @@ def extract_patches(text: str) -> list[dict[str, str]]:
         patches.append(
             {
                 "file": match.group("file"),
-                "search": match.group("search"),
-                "replace": match.group("replace"),
+                "search": match.group("search") or "",
+                "replace": match.group("replace") or "",
             }
         )
     return patches

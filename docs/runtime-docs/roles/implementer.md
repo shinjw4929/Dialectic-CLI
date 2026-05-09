@@ -75,10 +75,12 @@ def function_name(...):
 - [ ] trade-off를 1개 이상 명시했는가 (어떤 요구사항이 우선되었는가)
 - [ ] 직전 턴 reviewer critique에 대해 항목별 응답 명시 (수용/반박/유보) — 첫 턴이면 N/A
 - [ ] 직전 턴 user directive를 반영했는가 — 첫 턴이면 N/A
+- [ ] **모든 코드 산출은 search-replace 블록 형식 강제** — 신규 파일·기존 파일 수정 둘 다 동일. 단순 ` ```python ... ``` ` markdown fence만으로는 `extract_patches` 추출 0건 → 파일 미생성 (silent failure)
 - [ ] (코드 수정 시) search-replace 블록 형식 준수: `FILE: <path>` 헤더 + `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` 마커 정확 (ADR-10)
 - [ ] (코드 수정 시) SEARCH 블록은 workdir 파일에 정확히 일치하는 텍스트인가 (들여쓰기·공백·줄바꿈 포함, line number 의존 X)
 - [ ] (신규 파일 생성 시) SEARCH 블록은 빈 문자열 (`<<<<<<< SEARCH\n=======\n` 사이 본문 0). REPLACE 블록에 신규 파일 전체 본문 (ADR-10 신규 파일 분기, plan 014)
 - [ ] (신규 파일 생성 시) `FILE: <path>`의 path는 workdir 기준 상대 경로 (`/`, `..` 시작 금지 — `validate_patch_path` 차단)
+- [ ] **`FILE:` 헤더와 `<<<<<<< SEARCH` 사이에 markdown fence(```` ``` ````)를 끼워넣지 말 것** — 정규식이 wrapping 1단은 흡수하지만 의도 명확성 위해 평문이 우선. 코드 블록 펜싱은 SEARCH/REPLACE 마커 외부에서만 사용
 - [ ] (코드 수정 시) 변경이 기존 함수 시그니처 / 호출 측 인터페이스를 깨지 않는가 (호환성 검증)
 - [ ] 1500자 이내인가 (코드 블록 제외)
 

@@ -73,6 +73,44 @@
 - **관련 §3 후보**: C-006 (본 R-001로 승격됨, §3에서 §2로 이동 narrative)
 
 
+### R-002: file I/O 진입점은 OSError 광역 catch + 친절 SystemExit/error 메시지
+
+- **계층**: Knowledge (안전성 — 진입점 catch 광역)
+- **도메인**: 안전성 — 예외 누수 / 사용자 친화 메시지
+- **발견 경로**: review-code (Day 2 round 2·6, plan 014 round 3) — C-005 3회 누적 승격
+- **발견 횟수**: **3회** → 정식 환원 (2026-05-09)
+- **규칙**: file I/O / subprocess / decode 진입점의 `try/except` 튜플은 최소 `(UnicodeDecodeError, OSError)` 포함 + 도메인별 추가(`TimeoutExpired`/`JSONDecodeError`/`AgentAuthError`/`FileNotFoundError`/`ValueError`). 위반 시 main 스택 전파 + `kind=error` 미기록 (또는 친절 SystemExit 누락) → 사용자 traceback 노출. catch-all `except Exception`은 너무 넓어 부적절 — 명시적 enum 유지.
+- **위반 시**: **P1** (run_turn 본체는 P0, 보조 진입점은 P1)
+- **승격 대상**:
+  - `docs/dev-docs/Checklists/review-code-checklist.md` §1 안전성 도메인 P1 행 (deferred — 다음 checklist 갱신 시)
+  - `docs/dev-docs/code-conventions.md` §3 (예외 처리)에 "file I/O 진입점은 OSError 광역 catch" narrative (deferred)
+- **사례 (R-001과 별개로 catch 범위 광역화 누적 3회)**:
+  1. **R1 (review-code Day 2 round 2)**: `run_turn` `(TimeoutExpired, JSONDecodeError, AgentAuthError)`만 → `FileNotFoundError` (CLI 미설치) 누수
+  2. **R2 (review-code Day 2 round 6)**: 위 + `FileNotFoundError`만 → `OSError`(PermissionError), `UnicodeDecodeError`(role.md decode), generic `ValueError`(json.loads non-JSONDecodeError) 누수
+  3. **R3 (plan 014 review-code)**: `run_session:786-801` implement 분기 spec read에서 `UnicodeDecodeError`만 catch → `OSError`(PermissionError, IsADirectoryError 외) 누수. fix 적용 — `except OSError as e: raise SystemExit("spec 읽기 실패: ...") from e`
+- **검사 자동화**: `grep -nE "except\s+\(?(UnicodeDecodeError|TimeoutExpired)\b" src/` 후 OSError 부재 시 P1 보고. 명시적 enum 유지 검증.
+- **관련 §3 후보**: C-005 (본 R-002로 승격됨, §3에서 §2로 이동 narrative)
+
+
+### R-003: 정규식·파서 함수 변경 시 raw 입력 end-to-end 회귀 테스트 의무
+
+- **계층**: Validation (테스트 깊이)
+- **도메인**: 인터페이스 — 정규식 ↔ 처리 함수 contract
+- **발견 경로**: 사용자 수동 시연 (plan 014 dijkstra, 2026-05-09 R1·R2 누적)
+- **발견 횟수**: **2회** → 정식 환원 (사용자 명시 환원 결정, 2026-05-09)
+- **규칙**: 정규식·파서 함수 변경(예: `_PATCH_PATTERN`, `extract_patches`)에 따라 처리 함수(예: `apply_patches`) 동작이 달라지는 chain 코드는 **raw 입력 → 정규식 추출 → 처리 함수 적용** end-to-end 회귀 테스트 1건 이상 의무. 처리 함수만 dict 직접 입력으로 검증하면 정규식 변경(또는 driver 응답 형식 다양성)이 catch되지 못함.
+- **위반 시**: **P1** (silent failure 통로 — 단위 테스트 통과해도 실 시연 결함 발견)
+- **승격 대상**:
+  - `docs/dev-docs/Checklists/review-code-checklist.md` §3 컨벤션 도메인에 "정규식·파서 chain 함수 end-to-end 테스트 1건 의무" P1 행 추가 (deferred)
+  - `docs/dev-docs/code-conventions.md` §9 (테스트)에 패턴 narrative (deferred)
+- **사례** (2회 누적 — plan 014 사용자 시연):
+  1. **R1 (plan 014 Phase D 빈 SEARCH 매칭)**: `apply_patches` 신규 파일 분기 단위 테스트 6건 모두 patches dict 직접 입력 → `extract_patches` 정규식 우회. 사용자 시연 시 driver 응답 fence(`<<<<<<< SEARCH\n=======\n`)에서 정규식이 빈 SEARCH 매칭 0건 → silent failure. fix: 정규식 alternation + `tests/test_patch_apply.py::test_extract_new_file_empty_search` 회귀 차단
+  2. **R2 (plan 014 Phase D markdown fence)**: 같은 시연 2회차에 driver 응답이 `FILE:\n```\n<<<<<<< SEARCH...` markdown fence 끼움 → 정규식 매칭 0건. fix: `(?:`{3}[^\n]*\n)?` optional fence wrapping
+- **운영 보완**: `run_session` finally `files_changed=0 SystemExit`이 silent failure 차단 통로 — 단위 테스트 못 잡는 결함도 사용자 시연이 인지 가능. 그러나 본 규칙은 사전 차단 (시연 비용 0).
+- **검사 자동화**: 정규식 변경 PR에 `tests/` 라인 변동 부재 시 P1 경고 (review-code-checklist).
+- **관련 §3 후보**: C-016 (본 R-003로 승격됨, §3에서 §2로 이동 narrative)
+
+
 ---
 
 ## 3. 환원 가능 후보 (관찰 중)
@@ -253,7 +291,12 @@
 - **narrative 동기화**: 본 항목 등재로 추적.
 - **승격 판정**: orchestrator 추가 변경 발생 시 분할 우선 처리 — 함수 길이가 추가 결함 통로 (review-code 가독성 저하 + diff 부담).
 
-### C-005: orchestrator try/except 튜플 좁음 — fail-fast 누수 광역 패턴
+### C-005: orchestrator try/except 튜플 좁음 — **§2 R-002로 승격 (2026-05-09)**
+
+**승격 완료**: 3회 누적(Day 2 R1·R2 + plan 014 R3) → §2 R-002로 정식 환원. 이후 발견 사례는 R-002 "사례" 항목에 누적.
+
+아래는 승격 전 후보 narrative (history 보존용):
+
 
 - **계층**: Knowledge (인터페이스 — orchestrator 실패 모드)
 - **도메인**: 안전성 — catch 범위 부족
@@ -266,6 +309,24 @@
   3. **R3 사례 (plan 014 review-code)**: `run_session:786-801` implement 분기 spec read에서 `UnicodeDecodeError`만 catch → `OSError`(PermissionError, IsADirectoryError 외 race) 누수. fix 적용 — `except OSError as e: raise SystemExit("spec 읽기 실패: ...")` 추가
 - **fix 패턴 (누적)**: file I/O 진입점은 `(UnicodeDecodeError, OSError)` 최소 튜플 + 도메인별 추가(`TimeoutExpired`/`JSONDecodeError`/`AgentAuthError`/`FileNotFoundError`/`ValueError`).
 - **승격 판정**: 3회 누적 도달 — R-NNN 환원 + `code-conventions.md` "file I/O 진입점은 OSError 광역 catch + 친절 SystemExit/error 메시지" 규칙으로 승격 후보. 다음 작업 진입 시 결정. catch-all `except Exception`은 너무 넓어 부적절 — 명시적 enum 유지.
+
+### C-016: 단위 테스트가 dict 직접 입력으로 정규식 추출 단계 우회 — **§2 R-003로 승격 (2026-05-09)**
+
+**승격 완료**: 2회 누적 + 사용자 명시 환원 결정 → §2 R-003로 정식 환원. 이후 발견 사례는 R-003 "사례" 항목에 누적.
+
+아래는 승격 전 후보 narrative (history 보존용):
+
+
+- **계층**: Validation (테스트 깊이)
+- **도메인**: 인터페이스 — 정규식 ↔ 처리 함수 사이 contract 검증 부재
+- **발견 경로**: 사용자 수동 시연 (plan 014 dijkstra 시나리오, 2026-05-09)
+- **발견 횟수**: 2회 누적 (2026-05-09)
+  1. **R1 사례 (plan 014 Phase D)**: `apply_patches` 신규 파일 분기 단위 테스트 6건 모두 patches dict 직접 입력(`[{"file":..., "search":"", "replace":"..."}]`) → `extract_patches` 우회. 사용자 시연 시 driver 응답 fence(`<<<<<<< SEARCH\n=======\n`)에서 정규식이 빈 SEARCH 매칭 0건 → silent failure. fix: 정규식 alternation + `test_extract_new_file_empty_search` end-to-end 회귀 차단
+  2. **R2 사례 (plan 014 Phase D, markdown fence)**: 같은 시연 2회차에 driver 응답이 `FILE:\n```\n<<<<<<< SEARCH...` 형태 — 정규식이 markdown fence 한 줄 흡수 못해 추출 0건. fix: `(?:`{3}[^\n]*\n)?` optional fence wrapping
+- **패턴**: 본 도구는 driver 응답 텍스트 → 정규식 추출 → 처리 함수 chain. 단위 테스트가 처리 함수만 dict 직접 입력으로 검증하면 정규식 변경(혹은 driver 응답 형식 다양성)이 catch되지 못함. **API 비용 압박**으로 통합 테스트가 monkeypatch mock에 의존 → mock 응답 본문이 우연히 정규식과 정합 시 통과 가능.
+- **fix 패턴 (누적)**: extract→apply chain 함수마다 적어도 1건의 raw 텍스트 입력 → 정규식 추출 → 처리 함수 적용 end-to-end 단위 테스트 의무화. `tests/test_patch_apply.py::test_extract_new_file_empty_search` 패턴 참조.
+- **운영 보완**: `run_session` finally `files_changed=0` SystemExit가 사용자 시연 시 silent failure 차단 (catch 후 메시지로 인지 가능). 단위 테스트가 못 잡으면 시연이 catch.
+- **승격 판정**: 3회 누적 시 → R-NNN + review-code-checklist에 "정규식·파서 함수 변경 시 raw 입력 end-to-end 테스트 1건 의무" 행 추가. 현 단계는 후보 등재.
 
 ### C-015: TriggerListener __exit__ 후 prompt readline byte 절도 race (P-RAW)
 
