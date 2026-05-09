@@ -38,14 +38,21 @@ _PATCH_PATTERN = re.compile(
 (1) path validation — 모든 patch에 대해 validate_patch_path() 호출.
                      외부 1개라도 발견 시 PatchApplyError("path outside workdir").
 
-(2) 빈 SEARCH 차단 — search="" 인 patch가 1개라도 있으면
-                    PatchApplyError("empty SEARCH not allowed in <file>").
-                    빈 REPLACE는 허용 (driver 명시적 코드 삭제 의도).
+(2) 빈 SEARCH 분기 (plan 014 Phase D 신규 파일 지원):
+    - 파일 존재 + SEARCH="" → PatchApplyError("empty SEARCH not allowed in <file>")
+                              (기존 정책 보존 — 적용 위치 모호)
+    - 파일 부재 + SEARCH="" → 신규 파일 의도. (3) dry-run에서 originals=""/mutated=REPLACE
+                              등록 + new_files set에 추가 (read 호출 X)
+    - 파일 부재 + SEARCH 비어있지 X → (3) dry-run의 read에서 FileNotFoundError 또는
+                                     count==0 흐름 (현 구현은 read 시점에서 raise)
+    빈 REPLACE는 허용 (driver 명시적 코드 삭제 / 빈 신규 파일 의도).
 
-(3) dry-run — 각 파일을 한 번 read (encoding="utf-8", R-001 P-ENCODING).
-              originals: {path: original_text} (백업 전용)
+(3) dry-run — 각 파일 한 번 read (기존 파일만, encoding="utf-8", R-001 P-ENCODING).
+              originals: {path: original_text} (백업 전용. 신규 파일은 "")
               mutated:   {path: new_content} (in-memory 누적 치환)
+              new_files: set[Path] (rollback unlink 식별용 — plan 014 Phase D)
               각 patch 입력 순서대로 처리:
+                SEARCH="" + 신규 파일 → mutated[path] = REPLACE
                 count = mutated[path].count(search)
                 count==0 → PatchApplyError("search not found")
                 count>1  → PatchApplyError("ambiguous match: ... N times")
@@ -55,7 +62,8 @@ _PATCH_PATTERN = re.compile(
 
 (4) commit — mutated[path]를 write_text(encoding="utf-8") (R-001 P-ENCODING).
              변경된 파일만 write (mutated != originals).
-             write IO 실패 시 originals 백업으로 복원.
+             신규 파일 (new_files 포함)은 resolved.parent.mkdir(parents=True, exist_ok=True) 후 write.
+             write IO 실패 시 originals 백업으로 복원 (신규 파일은 unlink).
              복원 실패 시 stderr 경고 + apply_error에 합성 (best-effort).
 ```
 

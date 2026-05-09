@@ -77,6 +77,8 @@ def function_name(...):
 - [ ] 직전 턴 user directive를 반영했는가 — 첫 턴이면 N/A
 - [ ] (코드 수정 시) search-replace 블록 형식 준수: `FILE: <path>` 헤더 + `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` 마커 정확 (ADR-10)
 - [ ] (코드 수정 시) SEARCH 블록은 workdir 파일에 정확히 일치하는 텍스트인가 (들여쓰기·공백·줄바꿈 포함, line number 의존 X)
+- [ ] (신규 파일 생성 시) SEARCH 블록은 빈 문자열 (`<<<<<<< SEARCH\n=======\n` 사이 본문 0). REPLACE 블록에 신규 파일 전체 본문 (ADR-10 신규 파일 분기, plan 014)
+- [ ] (신규 파일 생성 시) `FILE: <path>`의 path는 workdir 기준 상대 경로 (`/`, `..` 시작 금지 — `validate_patch_path` 차단)
 - [ ] (코드 수정 시) 변경이 기존 함수 시그니처 / 호출 측 인터페이스를 깨지 않는가 (호환성 검증)
 - [ ] 1500자 이내인가 (코드 블록 제외)
 

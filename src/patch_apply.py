@@ -82,9 +82,11 @@ def apply_patches(
 
     절차 (phase-b §4 작업 단위 (1)~(4)):
     1) path validation — validate_patch_path SSOT
-    2) 빈 SEARCH 차단
+    2) 빈 SEARCH 차단 — 파일 존재 시. 파일 부재 시 신규 파일 의도로 (3)에 위임 (plan 014 Phase D)
     3) dry-run — 한 번 read + in-memory 누적 치환 + count==0/count>1 검사
-    4) commit — write_text. IO 실패 시 originals 백업으로 best-effort 복원
+                 신규 파일 (resolved.exists() == False)은 originals="" 등록 + new_files set 추적
+    4) commit — write_text. 신규 파일은 parent mkdir 후 write.
+                IO 실패 시 originals 백업으로 best-effort 복원 (신규 파일은 unlink)
     """
     try:
         # (1) path validation — 모든 patch에 대해 먼저 검증
@@ -92,9 +94,9 @@ def apply_patches(
         for patch in patches:
             resolved_paths.append(validate_patch_path(workdir, patch["file"]))
 
-        # (2) 빈 SEARCH 차단
-        for patch in patches:
-            if not patch["search"]:
+        # (2) 빈 SEARCH 차단 (파일 존재 시) — 부재 시 신규 파일 의도로 (3) 위임
+        for patch, resolved in zip(patches, resolved_paths):
+            if not patch["search"] and resolved.exists():
                 raise PatchApplyError(
                     "empty SEARCH not allowed in " + patch["file"]
                 )
@@ -102,16 +104,27 @@ def apply_patches(
         # (3) dry-run — 각 파일 한 번 read, in-memory 누적 치환
         originals: dict[Path, str] = {}
         mutated: dict[Path, str] = {}
+        new_files: set[Path] = set()  # rollback unlink 식별용 (plan 014 Phase D)
         # 입력 순서대로 patch 처리 (multi-patch same-file 순서 의존 가시화)
         for patch, resolved in zip(patches, resolved_paths):
             if resolved not in originals:
-                # R-001 P-ENCODING — encoding="utf-8" 명시 필수
-                original_text = resolved.read_text(encoding="utf-8")
-                originals[resolved] = original_text
-                mutated[resolved] = original_text
+                if resolved.exists():
+                    # 기존 파일 — R-001 P-ENCODING (encoding="utf-8" 명시 필수)
+                    original_text = resolved.read_text(encoding="utf-8")
+                    originals[resolved] = original_text
+                    mutated[resolved] = original_text
+                else:
+                    # 신규 파일 의도 — SEARCH=""인 patch만 도달 (위 (2) 정합)
+                    originals[resolved] = ""
+                    mutated[resolved] = ""
+                    new_files.add(resolved)
 
             search = patch["search"]
             current = mutated[resolved]
+            if not search:
+                # 신규 파일 + SEARCH="" — REPLACE 본문을 mutated에 등록
+                mutated[resolved] = patch["replace"]
+                continue
             count = current.count(search)
             if count == 0:
                 raise PatchApplyError(
@@ -133,6 +146,9 @@ def apply_patches(
             # 변경된 파일만 write (in-memory 결과가 원본과 다른 경우)
             for resolved in originals:
                 if mutated[resolved] != originals[resolved]:
+                    if resolved in new_files:
+                        # 신규 파일 — parent dir 보장 (plan 014 Phase D)
+                        resolved.parent.mkdir(parents=True, exist_ok=True)
                     # R-001 P-ENCODING
                     resolved.write_text(mutated[resolved], encoding="utf-8")
                     written.append(resolved)
@@ -144,11 +160,14 @@ def apply_patches(
                     except ValueError:
                         files_changed.append(str(resolved))
         except OSError as exc:
-            # best-effort 롤백
+            # best-effort 롤백 — 신규 파일은 unlink, 기존 파일은 originals 복원
             rollback_failures: list[str] = []
             for resolved in written:
                 try:
-                    resolved.write_text(originals[resolved], encoding="utf-8")
+                    if resolved in new_files:
+                        resolved.unlink()
+                    else:
+                        resolved.write_text(originals[resolved], encoding="utf-8")
                 except OSError as restore_exc:
                     rollback_failures.append(
                         str(resolved) + ": " + str(restore_exc)
