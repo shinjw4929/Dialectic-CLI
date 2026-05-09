@@ -19,11 +19,11 @@ dialectic run --task <text> [--workdir <path>] [--driver {codex,claude}]
 | 인자 | default | 설명 |
 |---|---|---|
 | `--task` | (필수) | 사용자 task 한 줄. driver/reviewer prompt §2 TASK에 주입 |
-| `--workdir` | `tempfile.mkdtemp(prefix="dialectic-")` | 작업 디렉토리. **Day 2: 미지정 시에도 cleanup X — 결과 확인 통로 (C-010)**. 종료 시 stderr에 `workdir`+`logs/messages.jsonl`+`logs/sessions/` 경로 안내. **Dialectic-CLI repo 루트·하위 사용 불가 (ADR-6, SystemExit + mkdtemp leak 차단 — C-008)** |
+| `--workdir` | `tempfile.mkdtemp(prefix="dialectic-")` | 작업 디렉토리. 미지정 시에도 cleanup X — 결과 확인 통로 (C-010). 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 `session_dir`+`messages.jsonl`+`sessions/` 경로 안내. **Dialectic-CLI repo 루트·하위 사용 불가 (ADR-6, SystemExit + mkdtemp leak 차단 — C-008)** |
 | `--driver` | `codex` | thesis 발화 위치 |
 | `--reviewer` | `claude` | antithesis 발화 위치 |
 | `--max-turns` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)` |
-| `--mode` | `run` | Day 2는 `run`만. plan/implement/compare는 Day 3+ |
+| `--mode` | `run` | run/plan/implement 3 모드 (plan 011 wiring). compare는 별도 subcommand 필요 (미구현, 후속 plan). 메뉴 5단계는 4종 노출 + implement/compare 안내 + back |
 | `--convergence-streak` | `2` | reviewer `[CONVERGED]` 마커 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9 fallback: `--max-turns < K+1` 시 K=1 + stderr 경고 |
 | `--interactive` | `end-only` (CLI 직접 호출), `critical` (메뉴 진입 default) | 3 모드 — `end-only` (자동 dialectic, prompt 0) / `critical` (Ctrl+F 비동기 트리거 + CONVERGED·max-turns 도달 시 `prompt_end_or_iterate` Y/n/text) / `full` (매 턴 끝 6지선다 a/r/m/i/e/s). plan 009-user-synthesis-wiring 산출. ADR-9 정책 — critical/full에서 `[CONVERGED]` streak ≥ K 도달 시 강제 종료 차단, 사용자 prompt. `MAX_TURNS_HARD_CAP=20` 절대 상한 (i 분기 무한 누적 방지). i 분기 정책 α — trigger/converged/last_turn 모든 i = `max_turns_runtime += 1` 단순 누적 (사용자 결정). full s/a 분기는 `run_turn(*, skip_reviewer=)` / `build_prompt(*, exclude_reviewer=)` keyword 인자로 wiring (default False 회귀 0) |
 
@@ -55,7 +55,7 @@ flowchart TD
 
 ## 3. 메시지 흐름 (실 호출 검증 기록)
 
-`/tmp/dialectic-demo/logs/messages.jsonl` 4 라인 — 2026-05-08 실 호출 결과:
+`/tmp/dialectic-demo/<UTC ts>/messages.jsonl` 4 라인 — 2026-05-08 실 호출 결과 (plan 011 Bug 2 fix 후 session 폴더 격리):
 
 | 라인 | turn_id | seq_in_turn | from | kind | parent_id | meta 핵심 |
 |---|---|---|---|---|---|---|
@@ -125,7 +125,8 @@ dialectic doctor   # 인증 OK 확인
 dialectic run --task "Reply with single digit: 1+1=?" \
               --workdir /tmp/dialectic-demo \
               --driver codex --reviewer claude --max-turns 1
-cat /tmp/dialectic-demo/logs/messages.jsonl   # 4 라인 (task→proposal→critique→meta)
+ls /tmp/dialectic-demo/                       # <UTC ts>/ session 폴더 (plan 011 Bug 2 fix)
+cat /tmp/dialectic-demo/<session-ts>/messages.jsonl   # 4 라인 (task→proposal→critique→meta)
 ```
 
 DoD 만족 기준 — `messages.jsonl`에 4 라인 + 모든 `parent_id` 체인 + `convergence_streak=1` 박힘 + `kind=meta content="auto_end_converged"` 등장.

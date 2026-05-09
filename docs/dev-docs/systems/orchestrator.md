@@ -130,7 +130,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 5. mock fallback (P-MOCK, plan 007 deferred 후 활성):
    - if (args.driver=="mock") or (args.reviewer=="mock") and args.interactive in ("critical","full"):
        args.interactive = "end-only"  # 강제 (raw 키 stdin 비호환)
-6. sessions_dir 생성 + bus = Bus(logs/messages.jsonl) + bus.append(_task_msg)
+6. session_ts 생성(`datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")`) + session_dir = workdir/`<ts>` + sessions_dir = session_dir/sessions + sessions_dir.mkdir(parents=True) + bus = Bus(session_dir/messages.jsonl) + bus.append(_task_msg). plan 011 Bug 2 fix — workdir 재호출 시 세션 격리 보장 (이전 `<workdir>/logs/` 단계 제거 → `<workdir>/<ts>/`)
 
 7. mode 분기 (3 분기):
    (a) end-only — AS-IS for ... in range(1, max_turns_runtime+1):

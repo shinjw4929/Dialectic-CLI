@@ -36,7 +36,7 @@
 | Mock 어댑터 + `--record` | `src/agents/mock.py` | Day 3-4 |
 | `compare --parallel` | ThreadPoolExecutor batch | Day 4 |
 | `dialectic logs` 서브커맨드 | 내장 흐름 관찰 | Day 4 |
-| 데모 task 풀 실행 + mock 자산 녹음 | `tasks/wave_difficulty/recordings/` | Day 4 |
+| 데모 시나리오 라이브러리 | `tasks/{implement-dijkstra, modify-dijkstra-add-graph}/` (구현 + 수정 흐름 시연) | Day 4 |
 | 데모 영상 (asciinema/mp4) | 5분 | Day 4 |
 | `setup.sh` 깨끗한 환경 검증 | 실패 0 보장 | Day 4 |
 
@@ -88,11 +88,12 @@ dialectic doctor           # claude/codex --version + auth status (비용 0)
 # setup.sh가 ~/.local/bin에 symlink 자동 등록 (PATH 포함 시) — venv activate 불필요.
 # 미등록 환경: `cd ~/Dialectic-CLI && ./dialectic` 또는 `source .venv/bin/activate` 후 호출.
 dialectic doctor                                           # 환경 점검
-dialectic                                                  # default 메뉴 — 환경 점검(spinner) → task 입력(example/?도움말) → max-turns(default 1) → 진행 확인 [Y/n] (n=task 재입력) → run 분기. 호출 중 spinner + 종료 시 stdout 결과 출력 (Day 2 한정: run + default 매핑 codex/claude)
+dialectic                                                  # default 메뉴 5단계 — 환경 점검(spinner) → 모드 선택(run/plan/implement/compare) → task 입력(example/?도움말) → 매핑(codex→claude / claude→codex) + workdir(자동/직접) + max-turns → 진행 확인 [Y/n] → run_session 분기. 호출 중 spinner + 종료 시 stdout 결과 출력 (plan 011 wiring 산출)
 dialectic run --task "Reply with single digit: 1+1=?" \
     --workdir /tmp/dialectic-demo \
     --driver codex --reviewer claude --max-turns 1
-cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + proposal + critique + meta)
+ls /tmp/dialectic-demo/                                    # <UTC timestamp>/ session 폴더 (예: 20260509T071838Z) — workdir 재호출 시 별도 폴더 격리 (plan 011 Bug 2 fix)
+cat /tmp/dialectic-demo/<session-ts>/messages.jsonl        # 4 라인+ (task + proposal + critique + meta)
 ```
 
 > **메뉴 한글 입력 결함**: terminal emulator + line discipline + IME 조립 layer 합성으로 Backspace 표시가 부정확할 뿐 아니라 IME 조립 단계에서 **일부 char가 buffer에 누락**될 수 있습니다 (실 검증 사례: 28 char 입력 → 21 char 누적). 진행 확인 단계의 `task: '...'` echo back으로 시각 검증하고, 정확한 입력이 필요하면 `dialectic run --task "..."` CLI 인자로 우회 권장. 자세한 결함 분석은 `docs/dev-docs/validation.md §3 C-011`.
@@ -102,11 +103,11 @@ cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + p
 | 옵션 | default | 설명 |
 |---|---|---|
 | `--task <text>` | (필수) | 사용자 task 한 줄 (driver/reviewer prompt §2 TASK 주입) |
-| `--workdir <path>` | `tempfile.mkdtemp(prefix='dialectic-')` | 작업 디렉토리. **Day 2: 미지정 시에도 cleanup X — 결과 확인 통로**. 종료 시 stderr에 workdir + `logs/messages.jsonl` 경로 안내. `/tmp/dialectic-*` 누적은 사용자가 주기 정리. **Dialectic-CLI repo 루트·하위 사용 불가** (ADR-6, SystemExit) |
+| `--workdir <path>` | `tempfile.mkdtemp(prefix='dialectic-')` | 작업 디렉토리. 미지정 시에도 cleanup X — 결과 확인 통로. 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 session_dir + `messages.jsonl` 경로 안내. `/tmp/dialectic-*` 누적은 사용자가 주기 정리. **Dialectic-CLI repo 루트·하위 사용 불가** (ADR-6, SystemExit) |
 | `--driver {codex,claude}` | `codex` | thesis 발화 위치 |
 | `--reviewer {codex,claude}` | `claude` | antithesis 발화 위치 |
 | `--max-turns N` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)`. 양수만 (`_positive_int` 가드) |
-| `--mode {run}` | `run` | Day 2는 `run`만. plan/implement/compare는 Day 3+ |
+| `--mode {run,plan,implement}` | `run` | run/plan/implement 3 모드. compare는 별도 subcommand 필요 (plan 011 산출 — argparse 3종, 메뉴는 4종 노출 + implement/compare 안내 + back) |
 | `--convergence-streak K` | `2` | reviewer `[CONVERGED]` 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9: `--max-turns < K+1` 시 K=1 fallback + stderr 경고. 양수만 |
 | `--interactive {end-only,critical,full}` | CLI 직접 호출: `end-only` / 메뉴 진입: `critical` (분기) | `end-only` = max-turns/streak까지 자동(prompt 0). `critical` = Ctrl+F 비동기 트리거 + CONVERGED/max-turns 종료 직전 prompt_end_or_iterate (Y/n/text). `full` = 매 턴 끝 6지선다(a/r/m/i/e/s) 강제. Ctrl+C는 abort (subprocess SIGINT 전파 + raw mode 복원 + exit 130) |
 
@@ -114,7 +115,8 @@ cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + p
 
 ## 현재 동작 모드
 
-- **Day 2**: `run` 모드만 정식 검증 (driver+reviewer 한 턴 E2E + `[CONVERGED]` 자동 종료). `plan`/`implement`/`compare`는 **CLI `--mode` choices에 미노출** — `MODE_ROLES`/`ROLE_FILE` dict에만 키 선반영(Day 3+ 호환). 사용자가 `--mode plan` 호출 시 argparse error로 차단. Day 3+에서 인터랙티브 UI + spec 입력 메커니즘(`--spec @<path>`) + `--mode` choices 확장.
+- **Day 2**: `run` 모드만 정식 검증 (driver+reviewer 한 턴 E2E + `[CONVERGED]` 자동 종료).
+- **Day 3+ 진행**: `--mode {run,plan,implement}` choices 확장 + 메뉴 5단계 노출 + `--interactive {end-only,critical,full}` mode dial + workdir 세션 격리 (plan 009/011 산출). `compare`는 별도 subcommand (미구현 — 후속 plan). `--mode plan`은 planner ROLE 응답을 JSONL에 보존하지만 spec.md auto-save는 미구현 (plan 013 backlog).
 - **Day 3+**: 사용자 6지선다 UI, mock 어댑터, `compare --parallel`, `dialectic logs`.
 
 ---

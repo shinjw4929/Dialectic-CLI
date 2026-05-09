@@ -9,10 +9,10 @@
 | 영역 | 현재 상태 | 정본 |
 |---|---|---|
 | CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic doctor` | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
-| 실행 모드 | `run`만 CLI에 노출 | [run mode](runtime-docs/systems/run-mode.md) |
+| 실행 모드 | `run`/`plan`/`implement` CLI 노출 (plan 011, compare는 별도 subcommand 미구현) | [run mode](runtime-docs/systems/run-mode.md) |
 | 포지션 | `driver` → `reviewer` | [protocol](runtime-docs/protocol.md#10-포지션-vs-역할-vs-벤더-3축-분리) |
 | `--interactive` 모드 | `end-only` (CLI default) / `critical` (메뉴 default, Ctrl+F 트리거 + 종료 직전 prompt) / `full` (매 턴 6지선다) | [run mode §1](runtime-docs/systems/run-mode.md#1-명령-표면) |
-| 로그 | `logs/messages.jsonl` + `logs/sessions/*.jsonl` | [jsonl-bus](dev-docs/systems/jsonl-bus.md) |
+| 로그 | `<workdir>/<UTC ts>/messages.jsonl` + `<workdir>/<UTC ts>/sessions/*.jsonl` (plan 011 Bug 2 fix — 매 호출 session 폴더 격리) | [jsonl-bus](dev-docs/systems/jsonl-bus.md) |
 | 종료 | fatal error / `[CONVERGED]` streak / `max-turns` / `auto_end_user` (critical/full e) / `auto_end_hard_cap` (i 누적 > 20) | [run mode 종료 조건](runtime-docs/systems/run-mode.md#4-종료-조건-dod-01-plan-6--outline04-451) |
 
 ## 한눈 흐름
@@ -22,7 +22,7 @@ flowchart TD
     CLI["dialectic run"]
     Session["run_session"]
     Guard["workdir resolve<br/>ADR-6 repo-root 차단"]
-    Logs["logs/messages.jsonl<br/>logs/sessions/"]
+    Logs["<session-ts>/messages.jsonl<br/><session-ts>/sessions/"]
     Task["append task<br/>turn_id=0"]
     Loop["turn loop<br/>1..max_turns"]
     Turn["run_turn"]

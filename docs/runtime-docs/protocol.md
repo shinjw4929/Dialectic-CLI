@@ -34,7 +34,7 @@ flowchart TB
         RSess[("sessions/<br/>N-reviewer.jsonl")]
         User["User Synthesis<br/>(stdin prompt or<br/>--decisions / --directives 자동)"]
 
-        Bus -. append .-> MJ[("logs/messages.jsonl")]
+        Bus -. append .-> MJ[("<session-ts>/messages.jsonl")]
         Bus --> Loop
         Loop -- "subprocess<br/>cwd=resolved" --> Driver
         Loop -- "subprocess<br/>cwd=resolved" --> Reviewer
@@ -51,7 +51,7 @@ flowchart TB
 
 ## 2. 메시지 스키마
 
-`logs/messages.jsonl` — 한 줄 = 한 메시지. 파일은 append-only.
+`<session-ts>/messages.jsonl` — 한 줄 = 한 메시지. 파일은 append-only.
 
 ```jsonc
 {
@@ -308,7 +308,7 @@ flowchart TD
 2. Codex(`thread_id` 사후 캡처) ↔ Claude(`session_id` 사전 지정) 비대칭을 추상화 누수 없이 흡수
 3. 디버깅·중간 편집 시 JSONL만 편집하면 됨
 
-세션 ID는 **로그 파일명 일관성** 용도만 (`logs/sessions/N-<slot>-<uuid>.jsonl`).
+세션 ID는 **로그 파일명 일관성** 용도만 (`<session-ts>/sessions/N-<slot>-<uuid>.jsonl`).
 
 ---
 
@@ -336,7 +336,7 @@ orchestrator는 모든 subprocess 호출에 `cwd=resolved_workdir` 강제.
 @dataclass(frozen=True)
 class AgentResponse:
     text: str
-    raw_path: Path        # logs/sessions/N-<slot>-<id>.jsonl
+    raw_path: Path        # <session-ts>/sessions/N-<slot>-<id>.jsonl
     meta: Meta            # frozen dataclass — schema.Meta 재사용 (§2 14 필드)
     stderr_excerpt: str | None = None  # 비정상 종료 시 stderr 발췌 (P-STDERR_LOSS).
                                        # orchestrator 빈 응답 분기에서 _error_msg content에 합성 (§9 정합)
