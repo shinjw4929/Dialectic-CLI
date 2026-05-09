@@ -176,3 +176,61 @@ def test_termios_unavailable_disables(monkeypatch: pytest.MonkeyPatch) -> None:
     with listener as t:
         assert t.is_set() is False
         assert t._thread is None  # noqa: SLF001
+
+
+def test_byte_queue_initialized() -> None:
+    """plan 015 채택 ① — `_byte_queue`는 queue.Queue(maxsize=1024) 인스턴스."""
+    import queue as _queue
+
+    listener = TriggerListener()
+    assert isinstance(listener._byte_queue, _queue.Queue)  # noqa: SLF001
+    assert listener._byte_queue.maxsize == 1024  # noqa: SLF001
+    assert listener._byte_queue.empty()  # noqa: SLF001
+
+
+def test_byte_queue_drained_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """plan 015 채택 ① — `__exit__` 시 listener가 절도한 byte queue를 drain.
+
+    sentinel byte를 사전 push 후 with 블록 진입/종료 → __exit__ 후 queue empty.
+    main thread readline 진입 전 깨끗한 상태 보장 (forward 시 사용자 'y' prefix
+    누수 차단).
+    """
+    sentinel_attrs = ["drain-attrs"]
+
+    class _FakeTTY:
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, _s: str) -> int:  # noqa: ARG002
+            return 0
+
+        def flush(self) -> None:
+            return None
+
+    monkeypatch.setattr(sys, "stderr", _FakeTTY())
+
+    fake_termios = type(ui.termios)("fake_termios_drain")  # type: ignore[arg-type]
+    fake_termios.tcgetattr = lambda _fd: list(sentinel_attrs)
+    fake_termios.tcsetattr = lambda *_a, **_kw: None
+    fake_termios.tcflush = lambda *_a, **_kw: None
+    fake_termios.TCSADRAIN = 1
+    fake_termios.TCSAFLUSH = 2
+    fake_termios.TCSANOW = 0
+    fake_termios.TCIFLUSH = 0
+
+    monkeypatch.setattr(ui, "termios", fake_termios)
+    monkeypatch.setattr(ui.tty, "setcbreak", lambda *_a, **_kw: None)
+    monkeypatch.setattr(ui.select, "select", lambda *_a, **_kw: ([], [], []))
+    monkeypatch.setattr(sys.stdin, "fileno", lambda: 0)
+
+    listener = TriggerListener()
+    # listener thread가 절도했을 byte 시뮬레이션 — TRIGGER_BYTE + 사용자 'y'.
+    listener._byte_queue.put_nowait(b"\x06")  # noqa: SLF001
+    listener._byte_queue.put_nowait(b"y")  # noqa: SLF001
+    assert listener._byte_queue.qsize() == 2  # noqa: SLF001
+
+    with listener:
+        pass
+
+    # __exit__ 후 queue empty — 잔존 byte 모두 폐기 (forward 시 readline prefix 누수 차단).
+    assert listener._byte_queue.empty()  # noqa: SLF001

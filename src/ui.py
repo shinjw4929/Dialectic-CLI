@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import queue
 import select
 import signal
 import sys
@@ -54,7 +55,7 @@ VENDOR_LABEL = {
 
 ROLE_LABEL_KO = {
     "implementer":   "구현자",
-    "spec-reviewer": "기획 검토자",
+    "spec-reviewer": "코드 검토자",
     "planner":       "계획자",
     "plan-reviewer": "계획 검토자",
 }
@@ -124,12 +125,14 @@ def _read_line_for_prompt() -> str:
     만 받음. 본 helper는 `os.read(fd, 4096)`로 byte 단위 직접 누적 — TextIOWrapper
     buffer 완전 우회. canonical mode가 line discipline 처리 (newline까지 byte buffer).
 
-    flush_stdin 사전 호출 — listener __exit__ 직후 잔재 byte drain (kernel queue +
-    fd ready). 이후 새 입력만 받음.
+    `flush_stdin` 호출 X — TriggerListener.__exit__가 이미 queue drain + tcsetattr
+    TCSAFLUSH + tcflush(TCIFLUSH)로 stdin 청소. prompt 표시 후 추가 drain은 사용자가
+    반사적으로 타이핑한 'y'/'c' byte를 grace_period_s 안에서 폐기 → 빈 줄 처리 →
+    INVALID_RETRY 반복 결함 (사용자 보고 환원, plan 015 정공법 추가 fix). prompt
+    표시 후 사용자 byte는 모두 의도된 입력 — 추가 drain 금지.
 
     EOF (chunk 빈 bytes) 시 EOFError raise — 호출자가 ("e", None) fallback 처리.
     """
-    flush_stdin(grace_period_s=0.05)
     fd = sys.stdin.fileno()
     buf = bytearray()
     while True:
@@ -333,6 +336,10 @@ class TriggerListener:
         # self-pipe — pause/__exit__ 시 select 즉시 깨움 (cycle 0.1s 안 byte 절도 차단).
         self._wake_r: int = -1
         self._wake_w: int = -1
+        # plan 015 채택 ① — listener thread가 절도한 byte를 thread-safe queue에 보존.
+        # __exit__ 시 drain + discard로 main thread readline 진입 전 깨끗한 상태 보장
+        # (forward 시 stdin readline에 listener가 잠시 가져갔던 사용자 'y' prefix 누수 차단).
+        self._byte_queue: queue.Queue[bytes] = queue.Queue(maxsize=1024)
         isatty = bool(getattr(sys.stderr, "isatty", lambda: False)())
         self._enabled = isatty and termios is not None
 
@@ -382,6 +389,12 @@ class TriggerListener:
             if not ch_bytes:
                 # EOF — PTY closed. busy loop 차단 위해 즉시 종료 (C-013, P-RAW).
                 return
+            # plan 015 채택 ① — 절도한 모든 byte를 queue에 보존. __exit__가 drain +
+            # discard로 정리 → main thread readline 진입 전 깨끗한 상태 보장.
+            try:
+                self._byte_queue.put_nowait(ch_bytes)
+            except queue.Full:
+                pass
             if ch_bytes[0] == self.TRIGGER_BYTE:
                 # 이미 trigger 상태 — 같은 턴 안 추가 누름 (driver/reviewer 순서 모두 누른 경우).
                 # 사용자가 trigger 인식 못 한 채 또 누른 시나리오 — 안내로 인식 보장.
@@ -505,6 +518,14 @@ class TriggerListener:
                         except Exception:
                             pass
         finally:
+            # plan 015 채택 ① — listener queue 잔존 byte 폐기 (forward 시 stdin readline에
+            # listener가 잠시 가져갔던 사용자 'y'·trigger 0x06 prefix 누수). thread join
+            # 후 시점이라 race-free.
+            while True:
+                try:
+                    self._byte_queue.get_nowait()
+                except queue.Empty:
+                    break
             # R3 안전망 — tcsetattr 복원은 thread join 실패해도 반드시 시도.
             # TCSAFLUSH (drain output queue + flush input queue + 즉시 적용) 사용 — TCSADRAIN은
             # drain 후 적용이라 prompt readline 호출 시점에 line discipline 정상화 보장 X
