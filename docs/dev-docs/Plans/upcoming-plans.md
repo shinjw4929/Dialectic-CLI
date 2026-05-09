@@ -19,7 +19,7 @@ flowchart LR
     P007[plan 007<br/>mock-adapter<br/>deferred]
     P009[plan 009<br/>user-synthesis-wiring<br/>completed]
     P010[plan 010<br/>observability]
-    P011[plan 011<br/>menu-expansion]
+    P011[plan 011<br/>menu-expansion<br/>completed]
     P012[plan 012<br/>model-config]
 
     P008 ==> P009
@@ -278,7 +278,7 @@ A·B·C 의존성 0 · execute-plan 병렬 분기 후보
 
 ---
 
-## plan 011-menu-expansion
+## plan 011-menu-expansion (✓ completed → `plan/completed/011-menu-expansion/`)
 
 ### 의도
 
