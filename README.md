@@ -6,7 +6,7 @@
 
 - **Driver (thesis)** — 한 벤더 (e.g., Codex CLI). 구현·계획 *생성*
 - **Reviewer (antithesis)** — 다른 벤더 (e.g., Claude Code). 충실도 + 일반 결함 *비판*
-- **사용자 (synthesis)** — 매 턴 결정 (accept/replace/iterate/etc) + 자유 directive → 다음 턴 양쪽 prompt에 주입
+- **사용자 (synthesis)** — driver thesis와 reviewer antithesis를 보고 다음 턴 directive 결정. directive는 history에 누적되어 양쪽 prompt §3 HISTORY에 노출. 개입 빈도는 `--interactive` 모드 dial: `end-only`(0회) / `critical`(Ctrl+F 트리거 + 종료 직전) / `full`(매 턴). 형식은 자유 텍스트 또는 단축 메뉴 (a/r/m/i/e/s)
 
 같은 모델 self-play의 self-preference bias를 깨려면 **다른 벤더**여야 한다는 thesis 위에 설계.
 
@@ -14,7 +14,7 @@
 
 ## 빠른 시작 (WSL2 기준, 빈 머신에서 끝까지)
 
-빈 WSL2 Ubuntu에서 처음부터 끝까지. 각 step은 독립 검증 가능 — 막히면 그 step만 다시. macOS는 brew·dnf로 패키지 관리자만 치환하면 동일 흐름.
+빈 WSL2 Ubuntu에서 처음부터 끝까지. 각 step은 독립 검증 가능 — 막히면 그 step만 다시. macOS는 Homebrew, Fedora/RHEL 계열은 dnf처럼 패키지 관리자만 치환하면 동일 흐름.
 
 ### Step 0 — WSL2 환경 (Windows host)
 
@@ -43,7 +43,7 @@ sudo apt install -y jq tree
 | `python3-venv` | `setup.sh`가 `.venv/` 생성 시 | ✓ apt 별도 패키지 (default 미설치) |
 | `python3-pip` | `pip install -e .` | ✓ |
 | `git` | repo clone | ✓ |
-| `curl`, `ca-certificates` | Node.js·codex CLI 다운로드 | ✓ |
+| `curl`, `ca-certificates` | nvm·Codex CLI release 다운로드 | ✓ |
 | `build-essential` | npm native 모듈 빌드 fallback | ◯ 선택 |
 | `jq` | `messages.jsonl` 라인 추출/필터 (CLI 디버깅) | ◯ 선택 — `dialectic logs`로 충분, 더 깊이 볼 때 |
 | `tree` | `<workdir>/<session>/` 구조 한눈 확인 | ◯ 선택 |
@@ -56,7 +56,7 @@ python3 -m venv --help   # 출력 있어야 함 (없으면 python3-venv 누락)
 
 ### Step 2 — Node.js + vendor CLI 설치
 
-`claude` CLI는 npm 글로벌 패키지, `codex` CLI는 별도 binary. 둘 다 필수.
+`claude`와 `codex` CLI 둘 다 필수. `claude`는 npm 글로벌 패키지로 설치하고, `codex`는 OpenAI 공식 경로인 npm/Homebrew/GitHub Release 중 하나로 설치한다. WSL2에서는 Step 2에서 이미 Node.js/npm을 준비하므로 npm 설치가 가장 단순하다.
 
 **Node.js** (LTS, nvm 권장 — 시스템 npm 권한 충돌 회피):
 ```bash
@@ -72,9 +72,10 @@ npm install -g @anthropic-ai/claude-code
 claude --version     # v2.1+ 기대
 ```
 
-**`codex` CLI** — [OpenAI 공식 문서](https://github.com/openai/codex)의 install 절차 참조 (npm 또는 binary). 설치 후:
+**`codex` CLI** — [OpenAI Codex CLI 공식 repo](https://github.com/openai/codex)의 install 절차 참조 (npm 기본, Homebrew 또는 GitHub Release binary 대안). WSL2 npm 경로:
 ```bash
-codex --version      # v0.128+ 기대
+npm install -g @openai/codex
+codex --version      # codex-cli x.y.z 형식 출력
 ```
 
 본 도구 자체는 **외부 의존성 0** (표준 라이브러리만, dev: pytest). vendor CLI 둘 다 설치·인증 필수 — mock fallback 없음.
@@ -112,13 +113,13 @@ dialectic doctor
   version  OK   2.1.x ...
   auth     OK   ... (또는 FAIL — 인증 누락)
 [codex]
-  version  OK   0.128.x ...
-  login    OK   ... (또는 FAIL — 인증 누락)
+  version  OK   codex-cli x.y.z ...
+  login    OK   Logged in using ChatGPT ... (또는 FAIL — 인증 누락)
 ```
 
 `auth`/`login`이 FAIL이면:
 - claude → `claude /login` (Pro/Max 구독 OAuth) 또는 `ANTHROPIC_API_KEY` env (Console API key). Bedrock/Vertex 경로는 별도 설정
-- codex → `codex login` (ChatGPT 구독 OAuth) 또는 `OPENAI_API_KEY` env
+- codex → `codex` 또는 `codex login`으로 ChatGPT 계정 OAuth 로그인 후 `codex login status` 확인. API key 경로는 `OPENAI_API_KEY` env 사용
 
 ### Step 5 — 첫 run (1턴, 결과 확인까지)
 
@@ -127,13 +128,16 @@ dialectic run --task "Reply with single digit: 1+1=?" --max-turns 1
 ```
 
 **기대**:
-- stderr에 spinner `[driver: codex] running... ⠋` → `[reviewer: claude] running... ⠋`
-- stdout에 driver(`proposal`)·reviewer(`critique`) 두 응답 본문
-- 종료 시 stderr에 session 경로 안내:
+- stderr에 spinner `[구현자: Codex CLI] running... ⠋` → `[코드 검토자: Claude Code] running... ⠋` (역할 한국어 라벨, `src/ui.py:56-61` `ROLE_LABEL_KO` SSOT)
+- stdout에 driver(`proposal`)·reviewer(`critique`) 두 응답 본문 (구분선 + 헤더 + 본문)
+- 종료 시 stderr 안내 (run_session finally):
   ```
-  session_dir: /home/<user>/.local/share/dialectic/runs/<UTC ts>-<8char>/<UTC ts>/
-  messages.jsonl: .../messages.jsonl
+  [run_session] session 보존: /home/<user>/.local/share/dialectic/runs/<UTC ts>-<8char>/<UTC ts>
+    messages.jsonl: .../messages.jsonl
+    raw streams:    .../sessions/
+    reason:         auto-end (max-turns reached)   # 또는 auto_end_converged / auto_end_user
   ```
+  + implement 모드는 `files_changed:` 단락 추가 (apply_status="ok" 산출 파일 list)
 
 **결과 검증**:
 ```bash
@@ -196,11 +200,12 @@ ls ~/.local/share/dialectic/runs/<UTC ts>-<8char>/specs/
 # Step 1: plan 산출 경로 확인
 SPEC=$(ls -t ~/.local/share/dialectic/runs/*/specs/*.md | head -1)
 echo "$SPEC"
+WORKDIR=$(dirname "$(dirname "$SPEC")")
 
 # Step 2: implement 진입 + 같은 workdir에 패치 적용
 dialectic implement \
   --spec "$SPEC" \
-  --workdir "$(dirname $(dirname $SPEC))" \
+  --workdir "$WORKDIR" \
   --max-turns 5
 ```
 
@@ -239,7 +244,9 @@ Step 5 — 진행 확인 [Y/n] → run_session
 
 ---
 
-## 흐름 관찰 (`dialectic logs`)
+## 흐름 관찰
+
+### 추상 명령 — `dialectic logs`
 
 ```bash
 # 자동 — 마지막 session 탐색 (base_dir 우선순위)
@@ -256,16 +263,58 @@ base_dir 우선순위: `--workdir` CLI > `DIALECTIC_RUNS_DIR` env > `XDG_DATA_HO
 
 각 라인 default = 1줄 요약 (`turn/seq/kind/from`). `--full`로 본문 펼침. `--kind`로 (proposal/critique/decision/error/meta/task/patch_applied 등) 필터.
 
+### 실 파일 경로 (직접 cat / jq)
+
+`run_session` 종료 시 stderr에 `session_dir`/`messages.jsonl` 절대 경로 안내. 그대로 cat/jq 가능.
+
+**경로 결정 규칙**:
+- `--workdir <path>` 명시 시 → `<path>/<UTC ts>/`
+- 미명시 시 → `~/.local/share/dialectic/runs/<UTC ts>-<8char>/<UTC ts>/` (XDG default)
+
+**session_dir 구조**:
+```
+<workdir>/<UTC ts>/                  # session_dir (run_session마다 격리)
+├── messages.jsonl                   # turn 라이프사이클 정본 (append-only, JSONL)
+└── sessions/                        # 어댑터 raw 응답 (디버깅용)
+    ├── <turn>-driver-<msg_id8>.jsonl
+    └── <turn>-reviewer-<msg_id8>.jsonl
+
+<workdir>/specs/                     # plan 모드 산출 (session 격리 X, top-level)
+└── <slug>.md                        # planner 응답 본문 자동 저장
+```
+
+**직접 검사 예시**:
+```bash
+# 사용자 명시 workdir인 경우
+cat /tmp/my-workdir/<UTC ts>/messages.jsonl | jq -c '{turn:.turn_id, kind, from:.from}'
+
+# 자동 생성 XDG default 경우 — 최신 session
+SESSION=$(ls -dt ~/.local/share/dialectic/runs/*/*/ | head -1)
+cat "$SESSION/messages.jsonl" | jq -c '{turn:.turn_id, kind, from:.from}'
+
+# 어댑터 raw 응답 (driver 1턴) — token 사용량·session_id·model 등 meta 보존
+cat "$SESSION/sessions/1-driver-"*.jsonl | jq .
+
+# patch_applied 메시지만 (apply_status·files_changed 확인)
+jq -c 'select(.kind == "patch_applied") | {turn:.turn_id, status:.meta.apply_status, files:.meta.files_changed}' "$SESSION/messages.jsonl"
+```
+
+`messages.jsonl`은 append-only — 기존 라인 절대 수정 X (정정은 새 메시지로). 스키마 정본은 `docs/runtime-docs/protocol.md §2`.
+
 ---
 
 ## 사용자 개입 (synthesis) — `--interactive` 모드
 
 본 도구의 thesis "사용자 = synthesis 생성자" 핵심 wiring.
 
+진입로별 default가 다름:
+- **CLI 직접 호출** (`dialectic run --task ...`) → `end-only` (자동 진행, CI·스크립트 친화)
+- **메뉴 진입** (`dialectic` 단독) → `critical` (기획자 페르소나 개입 의도 ↑)
+
 | 모드 | 매 턴 끝 | 종료 직전 | 트리거 |
 |---|---|---|---|
-| `end-only` (CLI default) | — | — | 자동, prompt 0 (CI 친화) |
-| `critical` (메뉴 default) | Ctrl+F 누른 턴만 6지선다 | `[CONVERGED]` streak 또는 max-turns 도달 시 `prompt_end_or_iterate` (Y/n/text) | Ctrl+F 비동기 |
+| `end-only` | — | — | 자동, prompt 0 |
+| `critical` | Ctrl+F 누른 턴만 6지선다 | `[CONVERGED]` streak 또는 max-turns 도달 시 `prompt_end_or_iterate` (Y/n/text) | Ctrl+F 비동기 |
 | `full` | 매 턴 강제 6지선다 (a/r/m/i/e/s) | `critical`과 동일 | 자동 |
 
 **6지선다** (full / critical 트리거 분기):
@@ -289,7 +338,7 @@ base_dir 우선순위: `--workdir` CLI > `DIALECTIC_RUNS_DIR` env > `XDG_DATA_HO
 | `--driver {codex,claude}` | `codex` | thesis 발화 위치 |
 | `--reviewer {codex,claude}` | `claude` | antithesis 발화 위치 |
 | `--max-turns N` | `1` | 최대 turn (양수). 도달 시 `auto-end (max-turns reached)` |
-| `--mode {run,plan,implement}` | `run` | compare는 별도 subcommand (미구현) |
+| `--mode {run,plan,implement}` | `run` | compare는 아직 CLI에 등록되지 않은 후속 모드 |
 | `--convergence-streak K` | `2` | reviewer `[CONVERGED]` 누적 K턴 → `auto_end_converged`. `--max-turns < K+1` 시 K=1 fallback (ADR-9) |
 | `--interactive {end-only,critical,full}` | CLI: `end-only` / 메뉴: `critical` | 위 §사용자 개입 표 참조 |
 | `--spec <path>` | — | `--mode implement` 시 필수 |
