@@ -115,6 +115,34 @@ def prompt_decision(
     return ("i", None)
 
 
+def _read_line_for_prompt() -> str:
+    """fd-level readline — Python `sys.stdin` TextIOWrapper buffer 우회.
+
+    사용자 결함 환원 (1.5차 fix 후에도 발생): GNU readline lib 우회 후에도 Python
+    TextIOWrapper internal buffer가 listener thread race로 채워지지 않거나, listener
+    thread가 join timeout으로 백그라운드에서 stdin byte 절도 → readline()이 빈 newline
+    만 받음. 본 helper는 `os.read(fd, 4096)`로 byte 단위 직접 누적 — TextIOWrapper
+    buffer 완전 우회. canonical mode가 line discipline 처리 (newline까지 byte buffer).
+
+    flush_stdin 사전 호출 — listener __exit__ 직후 잔재 byte drain (kernel queue +
+    fd ready). 이후 새 입력만 받음.
+
+    EOF (chunk 빈 bytes) 시 EOFError raise — 호출자가 ("e", None) fallback 처리.
+    """
+    flush_stdin(grace_period_s=0.05)
+    fd = sys.stdin.fileno()
+    buf = bytearray()
+    while True:
+        chunk = os.read(fd, 4096)
+        if not chunk:
+            raise EOFError
+        buf.extend(chunk)
+        if b"\n" in chunk:
+            break
+    line, _, _ = bytes(buf).partition(b"\n")
+    return line.decode("utf-8", errors="replace").rstrip("\r")
+
+
 def prompt_end_or_iterate(
     turn_id: int,
     reason: str,
@@ -178,9 +206,9 @@ def prompt_end_or_iterate(
             print(label, file=sys.stderr)
             print(f"reason: {reason}", file=sys.stderr)
             print(options_narrative, file=sys.stderr)
-            # input() 사용 (Phase D 1차 산출 패턴). cleanup-restart 패턴이라 listener는
-            # prompt 진입 전 완전 종료 — byte 절도 race 0이라 readline lib 잔재 영향 ↓.
-            raw = input("> ")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+            raw = _read_line_for_prompt()
         except (EOFError, KeyboardInterrupt):
             return ("e", None)
         text = raw.strip()
@@ -457,11 +485,34 @@ class TriggerListener:
         try:
             if self._thread is not None:
                 self._thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+                # join timeout 시 listener thread가 백그라운드에서 stdin byte 절도 가능
+                # (사용자 결함 환원: 사용자가 prompt에 'y' 입력해도 빈 줄로 처리되던
+                # race). self._stop 한 번 더 set + 추가 wake + 추가 join으로 race 완화.
+                if self._thread.is_alive():
+                    if self._wake_w >= 0:
+                        try:
+                            os.write(self._wake_w, b"x")
+                        except Exception:
+                            pass
+                    self._thread.join(timeout=THREAD_JOIN_TIMEOUT_S)
+                    if self._thread.is_alive():
+                        try:
+                            sys.stderr.write(
+                                "\n[!] listener thread join timeout — stdin byte 절도 "
+                                "race 잔존 가능 (terminal reset 권고)\n"
+                            )
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
         finally:
             # R3 안전망 — tcsetattr 복원은 thread join 실패해도 반드시 시도.
+            # TCSAFLUSH (drain output queue + flush input queue + 즉시 적용) 사용 — TCSADRAIN은
+            # drain 후 적용이라 prompt readline 호출 시점에 line discipline 정상화 보장 X
+            # (사용자 보고 결함 환원: "Ctrl+F 후 Enter 여러 번 눌러야 prompt readline 반응" —
+            # raw mode 잔존으로 사용자 byte가 line buffer 안 거치다가 일정 시간 후 자체 회복).
             if self._old_attrs is not None and termios is not None:
                 try:
-                    termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_attrs)
+                    termios.tcsetattr(self._fd, termios.TCSAFLUSH, self._old_attrs)
                 except Exception:
                     # OSError, termios.error 둘 다 silent — 사용자 terminal 복원 best-effort.
                     pass

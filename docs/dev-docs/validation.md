@@ -265,6 +265,26 @@
 - **fix 패턴 (누적)**: catch 튜플을 `(TimeoutExpired, JSONDecodeError, AgentAuthError, FileNotFoundError, OSError, UnicodeDecodeError, ValueError)`로 광역화. 향후 신규 예외 유형 발견 시 추가.
 - **승격 판정**: 3번째 누락 예외 발견 시 → R-NNN + `code-conventions.md` 또는 신규 패턴 정책. catch-all `except Exception`은 너무 넓어 부적절 — 명시적 enum 유지.
 
+### C-015: TriggerListener __exit__ 후 prompt readline byte 절도 race (P-RAW)
+
+- **계층**: Knowledge / Validation (P-RAW 하위)
+- **도메인**: 안전성 — listener thread + main readline race
+- **발견 경로**: plan 011 e2e 시연 (사용자 보고 "Ctrl+F → prompt 'y'/한글 입력 → 빈 줄로 처리, 거부 메시지 → INVALID_RETRY_LIMIT 도달 → fallback")
+- **발견 횟수**: **3회 누적** (사용자 환경 WSL2 PTY)
+- **연관 P-id**: P-RAW (raw mode + thread + stdin 절도 race)
+- **패턴**: `TriggerListener.__exit__` 후 `prompt_end_or_iterate`에서 사용자 입력 byte가 누락. 가능한 원인 다중:
+  1. termios attrs 복원 race (`TCSADRAIN` drain 대기 중에 readline 호출)
+  2. GNU readline lib 내부 buffer 잔재 (input() 호출 시)
+  3. Python sys.stdin TextIOWrapper buffer 비동기
+  4. listener thread join timeout으로 백그라운드 stdin byte 절도
+- **시도된 fix (3차 누적, 일부 환경에서 race 잔존)**:
+  1. `tcsetattr` `TCSADRAIN` → `TCSAFLUSH` (즉시 적용 + queue flush)
+  2. `input()` → `sys.stdin.readline()` (GNU readline lib 우회)
+  3. `sys.stdin.readline()` → `os.read(fd, 4096)` byte 직접 누적 (TextIOWrapper buffer 우회) + `_read_line_for_prompt` helper 신규
+  4. listener `__exit__` join 1차 timeout 시 추가 wake + 추가 join + is_alive 시 stderr "[!]" 경고
+- **잔존 결함**: 사용자 환경 (WSL2 PTY)에서 위 fix 적용 후에도 race 재현 보고. 본 문서 등록 후 별도 plan으로 정공법 fix 예정 — listener thread 폐기 + main thread polling 또는 signal-based trigger 메커니즘 검토
+- **승격 판정**: 정공법 fix 별도 plan 진입 시 R-NNN으로 환원. catch-all 임시 fix는 race 완전 제거 X
+
 ---
 
 ## 4. 운영 메커니즘

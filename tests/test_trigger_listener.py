@@ -81,6 +81,7 @@ def test_exit_restores_attrs_on_exception(monkeypatch: pytest.MonkeyPatch) -> No
     fake_termios.tcgetattr = fake_tcgetattr
     fake_termios.tcsetattr = fake_tcsetattr
     fake_termios.TCSADRAIN = 1
+    fake_termios.TCSAFLUSH = 2
     fake_termios.TCSANOW = 0  # __enter__ setcbreak when= 인자
 
     monkeypatch.setattr(ui, "termios", fake_termios)
@@ -98,12 +99,14 @@ def test_exit_restores_attrs_on_exception(monkeypatch: pytest.MonkeyPatch) -> No
         with TriggerListener():
             raise RuntimeError("boom")
 
-    # tcsetattr이 진입 전 attrs로 복원 호출됐는지 (마지막 호출이 TCSADRAIN 복원)
+    # tcsetattr이 진입 전 attrs로 복원 호출됐는지 (마지막 호출이 TCSAFLUSH 복원).
+    # TCSADRAIN → TCSAFLUSH 변경 (사용자 결함 환원: drain 후 적용은 prompt readline 시점에
+    # line discipline 정상화 보장 X. flush + 즉시 적용 보장).
     # __enter__ 사전 회수 path는 tcsetattr 호출 X (setcbreak이 tty 라이브러리 호출이지만
     # fake로 monkeypatch라 실 tcsetattr 호출 0). __exit__의 복원 호출만 set_calls에 등록.
     assert len(set_calls) >= 1
     last_call = set_calls[-1]
-    assert last_call[1] == fake_termios.TCSADRAIN
+    assert last_call[1] == fake_termios.TCSAFLUSH
     assert last_call[2] == sentinel_attrs
 
 
@@ -131,6 +134,7 @@ def test_cleanup_restart_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_termios.tcgetattr = lambda _fd: list(sentinel_attrs)
     fake_termios.tcsetattr = lambda fd, when, attrs: set_calls.append((fd, when, list(attrs)))
     fake_termios.TCSADRAIN = 1
+    fake_termios.TCSAFLUSH = 2
     fake_termios.TCSANOW = 0
 
     monkeypatch.setattr(ui, "termios", fake_termios)
