@@ -32,6 +32,20 @@ from src.schema import Message, Meta
 # 공통 헬퍼
 # ---------------------------------------------------------------------------- #
 
+def _read_session_messages(workdir: Path) -> str:
+    """workdir/<session-ts>/messages.jsonl 읽기 (timestamp 동적 추출).
+
+    Bug 2 fix 환원: orchestrator가 매 세션 workdir/<ts>/ 폴더 생성 → 테스트는
+    timestamp 디렉토리를 glob해서 messages.jsonl 위치 찾기. 1 세션당 1 폴더.
+    """
+    session_dirs = [d for d in workdir.iterdir() if d.is_dir()]
+    assert len(session_dirs) == 1, (
+        f"expected 1 session_dir under {workdir}, got {len(session_dirs)}: "
+        f"{[d.name for d in session_dirs]}"
+    )
+    return (session_dirs[0] / "messages.jsonl").read_text(encoding="utf-8")
+
+
 def _meta(workdir: Path = Path("/tmp")) -> Meta:
     return Meta(
         vendor="user", agent_cli="user", model=None,
@@ -198,7 +212,7 @@ def test_end_only_max_turns_reached(monkeypatch, tmp_path):
     args = _args(tmp_path, interactive="end-only", max_turns=1, k=1)
     rc = orchestrator.run_session(args)
     assert rc == 0
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "max-turns reached" in msgs
 
 
@@ -225,7 +239,7 @@ def test_critical_last_turn_user_end(monkeypatch, tmp_path):
     args = _args(tmp_path, interactive="critical", max_turns=1, k=1)
     rc = orchestrator.run_session(args)
     assert rc == 0
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "auto_end_user" in msgs
 
 
@@ -262,7 +276,7 @@ def test_critical_iterate_extends_max_turns_runtime(monkeypatch, tmp_path):
     assert rc == 0
     # turn=1, 2, 3 → 3회. (turn=1은 should_prompt False, turn=2 i, turn=3 e)
     assert call_counter["n"] == 3
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     # decision i 1번 + auto_end_user 1번
     assert msgs.count('"kind": "decision"') == 1
     assert "auto_end_user" in msgs
@@ -284,7 +298,7 @@ def test_critical_iterate_with_directive_text(monkeypatch, tmp_path):
     )
     args = _args(tmp_path, interactive="critical", max_turns=1, k=1)
     orchestrator.run_session(args)
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "더 자세히" in msgs
 
 
@@ -308,7 +322,7 @@ def test_critical_hard_cap_auto_end(monkeypatch, tmp_path):
     args = _args(tmp_path, interactive="critical", max_turns=20, k=1)
     rc = orchestrator.run_session(args)
     assert rc == 0
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "auto_end_hard_cap" in msgs
     assert f"max_turns_runtime > {MAX_TURNS_HARD_CAP}" in msgs
 
@@ -422,7 +436,7 @@ def test_full_r_branch_auto_inject_critique_when_empty(monkeypatch, tmp_path):
     )
     args = _args(tmp_path, interactive="full", max_turns=2, k=1)
     orchestrator.run_session(args)
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "이전 턴 reviewer 비판 강조 채택:" in msgs
     assert fake_critique_text[:50] in msgs
 
@@ -438,7 +452,7 @@ def test_full_r_branch_user_input_priority(monkeypatch, tmp_path):
     )
     args = _args(tmp_path, interactive="full", max_turns=2, k=1)
     orchestrator.run_session(args)
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "사용자 직권" in msgs
     assert "이전 턴 reviewer 비판 강조 채택:" not in msgs
 
@@ -454,7 +468,7 @@ def test_full_e_auto_end_user(monkeypatch, tmp_path):
     args = _args(tmp_path, interactive="full", max_turns=3, k=1)
     rc = orchestrator.run_session(args)
     assert rc == 0
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "auto_end_user" in msgs
 
 
@@ -469,7 +483,7 @@ def test_full_i_hard_cap_auto_end(monkeypatch, tmp_path):
     args = _args(tmp_path, interactive="full", max_turns=20, k=1)
     rc = orchestrator.run_session(args)
     assert rc == 0
-    msgs = (tmp_path / "logs" / "messages.jsonl").read_text(encoding="utf-8")
+    msgs = _read_session_messages(tmp_path)
     assert "auto_end_hard_cap" in msgs
     assert f"max_turns_runtime > {MAX_TURNS_HARD_CAP}" in msgs
 

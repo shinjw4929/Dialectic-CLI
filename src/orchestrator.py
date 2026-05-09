@@ -655,10 +655,15 @@ def run_session(args: argparse.Namespace) -> int:
         args.interactive = "end-only"
 
     try:
-        logs_dir = workdir / "logs"
-        sessions_dir = logs_dir / "sessions"
+        # session 격리 (사용자 결함 환원: workdir 재호출 시 messages.jsonl 누적 + DAG 깨짐).
+        # workdir/<session-ts>/ 폴더 안에 messages.jsonl + sessions/raw streams 모두 격리.
+        # workdir 자체가 unique 한 시나리오(plan 010 default 진입 후)에서도 무해 (한 폴더만 생성).
+        # 사용자가 직접 workdir 재사용 시 세션별 분리 보장.
+        session_ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        session_dir = workdir / session_ts
+        sessions_dir = session_dir / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        bus = Bus(logs_dir / "messages.jsonl")
+        bus = Bus(session_dir / "messages.jsonl")
         bus.append(_task_msg(args.task, args.mode, workdir))
 
         driver_runner = _resolve_runner(args.driver)
@@ -694,11 +699,11 @@ def run_session(args: argparse.Namespace) -> int:
         if cleanup:
             shutil.rmtree(workdir, ignore_errors=True)
         else:
-            # 사용자에게 workdir + messages.jsonl 경로 안내 — 결과 확인 통로.
+            # 사용자에게 session 폴더 + messages.jsonl 경로 안내 — 결과 확인 통로.
             sys.stderr.write(
-                f"\n[run_session] workdir 보존: {workdir}\n"
-                f"  messages.jsonl: {workdir}/logs/messages.jsonl\n"
-                f"  raw streams:    {workdir}/logs/sessions/\n"
+                f"\n[run_session] session 보존: {session_dir}\n"
+                f"  messages.jsonl: {session_dir}/messages.jsonl\n"
+                f"  raw streams:    {session_dir}/sessions/\n"
             )
 
 
