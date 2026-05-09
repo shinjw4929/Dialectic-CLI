@@ -22,27 +22,20 @@
 
 ## 4.3 데모 task — 기획자 페르소나 ✅ (Q13)
 
-**페르소나 변경**: 사용자 = 기획자 (게임 디자이너 — "기획자가 에이전트에게 게임 룰을 만들게 한다"는 컬처). 따라서 task는 **게임 룰·밸런스·메커닉 위주**. 개발자 페르소나의 자료구조 task(`parse_human_duration` 등)는 제외 — 기획자 페르소나와 안 맞음.
+**페르소나 변경**: 사용자 = 기획자/사용자 페르소나 — "사용자가 에이전트에게 의도를 전하면 도구가 다중 턴 dialectic으로 진화시킨다". task는 **알고리즘·시각화 위주** (도메인 비종속) — 평가자 환경에서 추가 의존성 없이 재현 가능.
 
-**후보 (3-5턴 내 의미 있는 dialectic이 일어나는 난이도)**:
+**현재 시나리오 라이브러리 (`tasks/`)**:
 
-| 후보 | 모드 적합성 | 장점 |
+| 시나리오 폴더 | 분류 | 의도 |
 |---|---|---|
-| **`wave_difficulty`** — 타워 디펜스 웨이브 난이도 함수 | 일반·계획 둘 다 강력 | 게임 디자인 도메인 직결, 엣지케이스(0/음수 입력, 가속 곡선 형태)·trade-off(난이도 곡선 종류) 풍부 |
-| **`reward_curve`** — 보상 곡선 시뮬레이션 | 일반·계획 둘 다 | 데이터 기반 검증 narrative와 시너지, "D7 retention 영향" 같은 비기능 요구 명시 가능 |
-| `buggy_rule_review` — 게임 룰 함수의 결함 추정 | 일반 | reviewer의 진가 즉시. spec이 미리 있어야 비교 의미 |
-| `inventory_balance` — 인벤토리 슬롯 / 아이템 가중치 | 계획 → 구현 2단계 | 계획 모드 데모용으로 확장 여지 |
-| **`<modify_task_id>`** (예: `wave_difficulty_v2` 또는 `buggy_rule_review` 승격) — 기존 코드 수정 task | 일반 (run·implement) | search-replace 메커니즘(Q22 ✅) 시연. 신규 작성과 다른 시각 — driver가 기존 코드 읽고 변경 의도 표현, reviewer가 회귀 검증 |
+| **`tasks/implement-dijkstra/`** | 구현 시나리오 (scratch) | 빈 workdir에서 dijkstra 알고리즘 작성 → 다중 턴 user synthesis directive("그래프 추가" → "색 추가")로 점진적 enhancement. plan 009 산출 user synthesis wiring 실 시연 |
+| **`tasks/modify-dijkstra-add-graph/`** | 수정 시나리오 (existing code) | seed 코드(`dijkstra.py`)를 workdir로 복사 후 `visualize` 함수 추가 지시 → ADR-10 search-replace 메커니즘 시연. driver가 기존 함수 보존하며 추가만 수행하는지 검증 |
 
-**결정 (잠정)**:
-- 1순위 task = `wave_difficulty` (Q4 = 잠정 결정, 신규 작성 시연). README 기본 데모, mock 녹음 자산도 이 task로 캡처.
-- **2순위 task = modify 전용** (Q23 ✅ c). `buggy_rule_review` 승격 또는 `wave_difficulty_v2` 신규 — 기존 코드 수정 시연. tasks/<modify_task_id>/task.md 본문 작성은 별도 후속 plan.
-- 3순위 task = `reward_curve` 또는 `inventory_balance`. 시간 여유 시 `tasks/`에 추가.
-- compare 모드(§4.5.4)와 결합 — `wave_difficulty`로 두 매핑 비교 데모.
-
-**최종 확정 시점**: Day 1 .md 골격 + `tasks/wave_difficulty/task.md` 본문 작성 후. Day 2 오전 전.
-
-**Task 본문 톤**: 기획자가 작성한 자연스러운 한국어. "(작성: 게임 디자이너, 2026-05-08)" 같은 메타 주석으로 페르소나 시그널.
+**결정**:
+- 두 시나리오가 본 도구의 두 핵심 흐름(scratch implementation + existing code modification)을 1:1로 시연 — 평가 데모 자산
+- 다른 task 후보(reward_curve, inventory_balance 등)는 시간 여유 시 추가, 본 plan 외
+- compare 모드 결합은 plan 011-Phase-D / 012 진입 후 검토 (§4.5.4)
+- mock 녹음(`tasks/<scenario>/recordings/`)은 plan 007 진입 후 시나리오별 자산 추가
 
 ## 4.4 Mock 모드 ✅ (Q5 = B, 인증 부재 시 자동 fallback ✅ Q5·C)
 
@@ -254,7 +247,7 @@ def wave_difficulty(wave_index: int) -> dict[str, int | float]: ...
 
 ```bash
 # 병렬 비교 (별도 모드, 비대화형)
-dialectic compare --task "@tasks/wave_difficulty/task.md" \
+dialectic compare --task "@tasks/implement-dijkstra/task.md" \
                   --configs "driver=codex,reviewer=claude" \
                             "driver=claude,reviewer=codex" \
                   --parallel \

@@ -21,12 +21,17 @@ flowchart LR
     P010[plan 010<br/>observability]
     P011[plan 011<br/>menu-expansion<br/>completed]
     P012[plan 012<br/>model-config]
+    P013[plan 013<br/>spec-autosave<br/>completed]
+    P014[plan 014<br/>implement-spec<br/>backlog]
 
     P008 ==> P009
     P008 --> P010
     P008 --> P011
     P007 --> P012
     P012 --> P011
+    P011 --> P013
+    P010 --> P013
+    P013 --> P014
 ```
 
 - plan 008·007은 본 문서 범위 외 (각각 active / mock 어댑터)
@@ -331,6 +336,37 @@ D는 plan 012 완료 후 진입
 - `outline/03-ux.md` §3.2 line 104-252 — 메뉴 단계 narrative SSOT
 - `src/cli.py:_interactive_menu` — AS-IS 시작점
 - `src/ui.py:prompt_decision` — User Synthesis wiring은 plan 009 책임
+
+---
+
+## plan 013-spec-autosave (✓ completed → `plan/completed/013-spec-autosave/`)
+
+### 의도
+
+`mode=plan` 호출 시 planner ROLE 응답을 매 턴 `<workdir>/specs/<slug>.md` (top-level — session 격리 X) 파일로 자동 저장. JSONL 텍스트 보존만 있던 상태 → 파일 시스템 spec.md 산출 (outline `:46`/`:50`/`:131-132`/`:199-200` + planner.md `:11`/`:139` SSOT narrative와 wiring 정합).
+
+### Phase 분할
+
+```
+A · helpers (slug + path resolve)        ~45 LOC + 테스트 ~50 LOC
+B · orchestrator wiring + 통합 테스트   ~25 LOC + 테스트 ~30 LOC
+```
+
+A → B 직렬 (B가 A의 helper 2개 import).
+
+### 산출 핵심
+
+- `_task_to_slug(task, *, max_len=50)` / `_resolve_spec_path(workdir, task, *, session_ts)` 2 helper
+- `run_turn` / `_run_session_*` 3종 시그니처에 `*, spec_path: Path | None = None` 추가 (회귀 0)
+- 매 턴 driver 응답 직후 `spec_path.write_text(...)` overwrite (마지막 정본 정책)
+- 충돌 fallback: `<slug>-<session_ts>.md` (run_session 산출 session_ts 재사용 → session_dir 1:1 매핑)
+- 17 신규 테스트 (slug 6 + path 4 + run_turn 3 + run_session 4)
+
+### 의존
+
+- plan 011 완료 (메뉴 wiring) — driver/reviewer 모드 분기 SSOT 활용
+- plan 010 완료 (workdir default + session_ts 격리) — line 위치·default 흐름 narrative 정합
+- plan 014 (`dialectic implement --spec`) — 본 plan 산출 spec.md 소비자 (사용자 결정 분리, backlog)
 
 ---
 

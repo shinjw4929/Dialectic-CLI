@@ -8,7 +8,7 @@
 
 | 영역 | 현재 상태 | 정본 |
 |---|---|---|
-| CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic doctor` | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
+| CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic doctor`, `dialectic logs` (plan 010 Phase A — `--workdir/--session/--tail/--follow/--kind/--full`) | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
 | 실행 모드 | `run`/`plan`/`implement` CLI 노출 (plan 011, compare는 별도 subcommand 미구현) | [run mode](runtime-docs/systems/run-mode.md) |
 | 포지션 | `driver` → `reviewer` | [protocol](runtime-docs/protocol.md#10-포지션-vs-역할-vs-벤더-3축-분리) |
 | `--interactive` 모드 | `end-only` (CLI default) / `critical` (메뉴 default, Ctrl+F 트리거 + 종료 직전 prompt) / `full` (매 턴 6지선다) | [run mode §1](runtime-docs/systems/run-mode.md#1-명령-표면) |

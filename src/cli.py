@@ -57,7 +57,8 @@ def main() -> int:
     p_run.add_argument("--task", required=True)
     p_run.add_argument(
         "--workdir", default=None,
-        help="작업 디렉토리. 미지정 시 tempfile.mkdtemp(prefix='dialectic-')로 자동 생성. "
+        help="작업 디렉토리. 미지정 시 ~/.local/share/dialectic/runs/<timestamp-id>/ 자동 생성. "
+             "DIALECTIC_RUNS_DIR / XDG_DATA_HOME 환경변수로 base_dir 변경 가능. "
              "Dialectic-CLI repo 루트는 ADR-6에 의해 사용 불가 (개발용 .md 누수).",
     )
     p_run.add_argument("--driver", choices=["codex", "claude"], default="codex")
@@ -85,6 +86,39 @@ def main() -> int:
     # doctor
     p_doc = subs.add_parser("doctor", help="환경 점검 (claude/codex --version + auth status, 비용 0)")
     p_doc.set_defaults(func=lambda args: _print_env_check())
+
+    # logs (outline/03-ux.md §3.5 — Q3 관찰성, plan 010 Phase A 1차 범위)
+    p_logs = subs.add_parser(
+        "logs",
+        help="messages.jsonl 흐름 관찰 (turn/seq/kind 1줄 요약 또는 본문 펼침). plan 010 Phase A.",
+    )
+    p_logs.add_argument(
+        "--workdir", default=None,
+        help="workdir 또는 session_dir 직접 지정. 미지정 시 base_dir 우선순위로 자동 탐색 "
+             "(DIALECTIC_RUNS_DIR > XDG_DATA_HOME/dialectic/runs > ~/.local/share/dialectic/runs).",
+    )
+    p_logs.add_argument(
+        "--session", default=None,
+        help="session_ts(`%%Y%%m%%dT%%H%%M%%SZ`) — `--workdir`가 workdir level일 때 명시 지정. "
+             "지정 시 `<workdir>/<session>/`로 직접 해소.",
+    )
+    p_logs.add_argument(
+        "--tail", type=int, default=None,
+        help="마지막 N개 메시지만 출력 (kind 필터 적용 후). 미지정 시 전체.",
+    )
+    p_logs.add_argument(
+        "--follow", action="store_true",
+        help="EOF 도달 후 polling(0.5s) 새 line append 시 추가 출력. Ctrl-C로 종료. (`src.logs._FOLLOW_POLL_INTERVAL_S` SSOT)",
+    )
+    p_logs.add_argument(
+        "--kind", dest="kind", default=None,
+        help="kind 필터 (proposal|critique|decision|error|meta|task|patch_applied 등). 미지정 시 전체.",
+    )
+    p_logs.add_argument(
+        "--full", action="store_true",
+        help="본문 펼침 (default 1줄 요약).",
+    )
+    p_logs.set_defaults(func=_logs_entry)
 
     args = parser.parse_args()
     if not args.cmd:
@@ -239,8 +273,8 @@ def _input_mapping() -> tuple[str, str]:
 def _input_workdir() -> str | None:
     """단계 4 workdir 선택. single-prompt UX.
 
-    빈 입력(Enter) → None 반환 (orchestrator 자동 생성 — `tempfile.mkdtemp(...)` 또는
-    plan 010 진입 후 `~/.local/share/dialectic/runs/<...>`).
+    빈 입력(Enter) → None 반환 (orchestrator 자동 생성 —
+    `~/.local/share/dialectic/runs/<...>` default, `DIALECTIC_RUNS_DIR`/`XDG_DATA_HOME` env override).
     그 외 입력 → 경로로 해석:
       - 존재하는 디렉토리 → resolve된 절대 경로 반환
       - 존재하는 파일 → 거부 + 재입력
@@ -409,6 +443,49 @@ def _interactive_menu_body() -> int:
             # 'n' → 진행 의지 유지하지만 run_session은 이미 중단됐으니 fresh 재진입.
             return _interactive_menu()
         return 0
+
+
+def _logs_entry(args: argparse.Namespace) -> int:
+    """`dialectic logs` argparse Namespace → `render_logs` kwarg 매핑.
+
+    분기:
+      - `--workdir` 미지정 → `find_latest_session_dir()` 자동 탐색 (base_dir 우선순위)
+      - `--workdir` + `--session` 지정 → `<workdir>/<session>/` 직접
+      - `--workdir` only → `resolve_session_dir`이 workdir/session_dir 자동 분기
+
+    plan 010 Phase A 신설. logs 모듈은 `src/logs.py` SSOT.
+    """
+    # logs 모듈은 lazy import — `dialectic run` 등 다른 subcmd 시작 비용 0 유지.
+    from .logs import find_latest_session_dir, render_logs, resolve_session_dir
+
+    if args.workdir is None:
+        session_dir = find_latest_session_dir()
+        if session_dir is None:
+            sys.stderr.write("[logs] 마지막 세션 미발견 — --workdir로 지정\n")
+            return 1
+    else:
+        user_path = Path(args.workdir).resolve()
+        if args.session:
+            session_dir = user_path / args.session
+            if not (session_dir / "messages.jsonl").exists():
+                sys.stderr.write(f"[logs] {session_dir}/messages.jsonl 미존재\n")
+                return 1
+        else:
+            resolved = resolve_session_dir(user_path)
+            if resolved is None:
+                sys.stderr.write(
+                    f"[logs] {user_path} 하위 session 미발견 "
+                    f"(workdir 자체에 messages.jsonl 없음)\n"
+                )
+                return 1
+            session_dir = resolved
+    return render_logs(
+        session_dir=session_dir,
+        tail=args.tail,
+        follow=args.follow,
+        kind_filter=args.kind,
+        full=args.full,
+    )
 
 
 def _print_env_check() -> int:

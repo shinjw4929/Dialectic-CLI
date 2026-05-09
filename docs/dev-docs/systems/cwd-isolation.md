@@ -33,22 +33,31 @@ A 층(개발용 .md) ↔ B 층(런타임 prompt) 누수 차단 — `outline/01-h
 
 `shell=True` 절대 금지 (review-code §안전성 P0).
 
-### Layer 2: orchestrator `run_session` workdir 정규화 + repo-root 차단
+### Layer 2: orchestrator `run_session` workdir 정규화 + repo-root/하위 차단
 
 ```python
-workdir = (Path(args.workdir).resolve() if args.workdir
-           else Path(tempfile.mkdtemp(prefix="dialectic-")).resolve())
+# _resolve_workdir(args) — 우선순위 표 SSOT (plan 010 Phase C):
+#   1. --workdir CLI 인자
+#   2. DIALECTIC_RUNS_DIR 환경변수
+#   3. XDG_DATA_HOME/dialectic/runs/
+#   4. ~/.local/share/dialectic/runs/  (default, XDG Base Directory Specification 준수)
+# 폴더명 = "<YYYYMMDD-HHMMSS>-<8char>" (mkdtemp suffix가 short-id, 1초 내 collision 0)
+workdir = _resolve_workdir(args)
 
 DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
-if workdir == DIALECTIC_REPO_ROOT:
+if workdir == DIALECTIC_REPO_ROOT or DIALECTIC_REPO_ROOT in workdir.parents:
     raise SystemExit(
-        f"--workdir이 Dialectic-CLI repo 루트({workdir})와 일치합니다 (ADR-6). "
-        f"개발용 .md가 런타임 prompt에 누수됩니다. 별도 경로 또는 --workdir 미지정 사용."
+        f"--workdir이 Dialectic-CLI repo 루트 또는 그 하위 경로({workdir})입니다 (ADR-6). "
+        f"별도 경로를 지정하거나 --workdir 미지정으로 임시 dir 자동 생성을 사용하십시오."
     )
 
-cleanup = False  # Day 2: --workdir 미지정 시에도 결과 보존 (사용자 확인 통로)
+cleanup = False  # --workdir 미지정 시에도 결과 보존 (사용자 확인 통로, C-010)
 # 종료 시 stderr에 workdir + messages.jsonl 경로 안내. Day 3+ `--cleanup-workdir` 토글 검토.
 ```
+
+**default 경로 narrative**: `/tmp/dialectic-XXXX` (post-mkdtemp) → `~/.local/share/dialectic/runs/<...>` (plan 010 Phase C). `/tmp` 후보 기각 근거 — reboot 시 휘발 + 비-Linux WSL2/macOS에서 위치 비일관. `/mnt/c` 기각 — WSL Windows mount 권한·case-sensitivity 결함. repo 하위 기각 — ADR-6 위반 (본 §Layer 2가 차단). XDG가 4 후보 중 유일하게 안전·표준 (memory `project_plan_010_workdir_default.md`).
+
+**ADR-6 차단 범위**: `--workdir` CLI + `DIALECTIC_RUNS_DIR` env + `XDG_DATA_HOME`/`~/.local/share` default 어느 경로든 repo 루트 또는 하위 경로일 때 `run_session` 진입 직후 SystemExit. base_dir 자체가 repo 하위이면 mkdtemp가 repo 하위 임시 dir을 생성한 직후 차단되므로 `cleanup` 시 leak 차단(C-008).
 
 `Path.resolve()`로 symlink + 상대경로 해소 → `workdir`이 항상 절대 정규 경로. `meta.workdir = str(workdir)` 박힘 (재현성).
 
@@ -131,6 +140,7 @@ def test_cwd_isolation_adr6(tmp_path):
 |---|---|
 | 새 어댑터 추가 (mock 등) | 본 §Layer 1 표 + 본 §Layer 3 옵션 표 + `tests/test_cwd_isolation.py` 신규 어댑터 단언 |
 | `run_session` workdir 검증 변경 | 본 §Layer 2 + `orchestrator.md` §run_session + `tests/test_cwd_isolation.py::test_run_session_rejects_repo_root_workdir` |
+| `_resolve_workdir` 우선순위 표 변경 (env 키, default 경로) | 본 §Layer 2 우선순위 박스 + `orchestrator.md` `_resolve_workdir` + `runtime-docs/systems/run-mode.md §1 --workdir 행` + `tests/test_workdir_default.py` 5건 단언 + `README.md` 5초 데모·CLI 옵션 표 |
 | ADR-9 `disable_bare` 토글 도입 (Day 4) | 본 §Layer 3 claude 행 + `agents.md` ClaudeRunner cmd_list + `architecture.md` ADR-9 |
 | 통합 시나리오 강화 (Day 3+ mock 활용) | 본 §검증 + `phase-d-tests.md` (또는 후속 plan) |
 

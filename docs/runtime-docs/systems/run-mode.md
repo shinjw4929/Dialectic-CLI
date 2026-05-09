@@ -19,7 +19,7 @@ dialectic run --task <text> [--workdir <path>] [--driver {codex,claude}]
 | 인자 | default | 설명 |
 |---|---|---|
 | `--task` | (필수) | 사용자 task 한 줄. driver/reviewer prompt §2 TASK에 주입 |
-| `--workdir` | `tempfile.mkdtemp(prefix="dialectic-")` | 작업 디렉토리. 미지정 시에도 cleanup X — 결과 확인 통로 (C-010). 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 `session_dir`+`messages.jsonl`+`sessions/` 경로 안내. **Dialectic-CLI repo 루트·하위 사용 불가 (ADR-6, SystemExit + mkdtemp leak 차단 — C-008)** |
+| `--workdir` | `~/.local/share/dialectic/runs/<YYYYMMDD-HHMMSS>-<8char>/` (plan 010 Phase C, XDG Base Directory Specification) | 작업 디렉토리. 우선순위: `--workdir` CLI > `DIALECTIC_RUNS_DIR` env > `XDG_DATA_HOME/dialectic/runs/` > default. 미지정 시에도 cleanup X — 결과 확인 통로 (C-010). 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 `session_dir`+`messages.jsonl`+`sessions/` 경로 안내. **Dialectic-CLI repo 루트·하위 사용 불가 (ADR-6, SystemExit + mkdtemp leak 차단 — C-008). base_dir이 repo 하위인 env 설정도 차단됨.** |
 | `--driver` | `codex` | thesis 발화 위치 |
 | `--reviewer` | `claude` | antithesis 발화 위치 |
 | `--max-turns` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)` |
@@ -55,7 +55,7 @@ flowchart TD
 
 ## 3. 메시지 흐름 (실 호출 검증 기록)
 
-`/tmp/dialectic-demo/<UTC ts>/messages.jsonl` 4 라인 — 2026-05-08 실 호출 결과 (plan 011 Bug 2 fix 후 session 폴더 격리):
+`~/.local/share/dialectic/runs/<YYYYMMDD-HHMMSS>-<8char>/<UTC ts>/messages.jsonl` 4 라인 — `--workdir` 미지정 default 경로 (plan 010 Phase C 후, plan 011 Bug 2 fix 후 session 폴더 격리):
 
 | 라인 | turn_id | seq_in_turn | from | kind | parent_id | meta 핵심 |
 |---|---|---|---|---|---|---|
@@ -123,10 +123,10 @@ pytest -q tests/test_orchestrator_converge.py tests/test_cwd_isolation.py
 # E2E (인증 환경 필요)
 dialectic doctor   # 인증 OK 확인
 dialectic run --task "Reply with single digit: 1+1=?" \
-              --workdir /tmp/dialectic-demo \
               --driver codex --reviewer claude --max-turns 1
-ls /tmp/dialectic-demo/                       # <UTC ts>/ session 폴더 (plan 011 Bug 2 fix)
-cat /tmp/dialectic-demo/<session-ts>/messages.jsonl   # 4 라인 (task→proposal→critique→meta)
+ls ~/.local/share/dialectic/runs/             # <YYYYMMDD-HHMMSS>-<8char>/ workdir (plan 010 Phase C default)
+ls ~/.local/share/dialectic/runs/<workdir>/   # <UTC ts>/ session 폴더 (plan 011 Bug 2 fix)
+cat ~/.local/share/dialectic/runs/<workdir>/<session-ts>/messages.jsonl   # 4 라인 (task→proposal→critique→meta)
 ```
 
 DoD 만족 기준 — `messages.jsonl`에 4 라인 + 모든 `parent_id` 체인 + `convergence_streak=1` 박힘 + `kind=meta content="auto_end_converged"` 등장.

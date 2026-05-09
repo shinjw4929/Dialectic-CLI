@@ -77,7 +77,7 @@ Day 4 (가용 종일 — 마감일, 가장 큰 작업 시간대)
   · dialectic compare --parallel 구현 (~80 LOC, ThreadPoolExecutor)
   · src/cli.py logs 서브커맨드 (~50 LOC)
 ─ 점심 후 (~2-3h):
-  · 풀 데모 1회 실행 (wave_difficulty run 모드) → mock 자산 녹음 (tasks/wave_difficulty/recordings/)
+  · 풀 데모 2회 실행 (구현 시나리오 `tasks/implement-dijkstra/` + 수정 시나리오 `tasks/modify-dijkstra-add-graph/`) → mock 자산 녹음 (`tasks/<scenario>/recordings/`)
   · 추가 데모: plan → implement 흐름 1회 + compare 1회
   · README 정돈 (4 모드 안내, mock fallback 검증, 실제 명령 cross-check)
   · SYNTHESIS.md / compare.md / spec.md 자동 생성 마무리
@@ -179,7 +179,7 @@ Day 4 (가용 종일 — 마감일, 가장 큰 작업 시간대)
 37. orchestrator MODE_ROLES dict — 모드↔role 매핑
 38. dialectic plan / implement 모드 (role 매핑만 변경)
 39. `src/agents/mock.py` + `--record` 옵션 (시간 남으면) — **C-003 cross-check 시점**
-39b. `tasks/<modify_task_id>/task.md` 신규 (Q23=c modify 데모 자산. `buggy_rule_review` 승격 또는 `wave_difficulty_v2` 신규)
+39b. ✓ `tasks/modify-dijkstra-add-graph/task.md` + `seed/dijkstra.py` (Q23=c modify 데모 자산 — ADR-10 search-replace 시연. 기존 dijkstra 함수에 `visualize` 추가)
 
 ### Day 4 — 마감
 
@@ -187,9 +187,9 @@ Day 4 (가용 종일 — 마감일, 가장 큰 작업 시간대)
 41. `dialectic logs` 서브커맨드
 42. mock + --record 마무리 (Day 3 잔여 시)
 43. 풀 데모 3종 실행 → mock 자산 녹음:
-    - `tasks/wave_difficulty/recordings/` (run 모드, 신규 작성)
+    - `tasks/implement-dijkstra/recordings/` (run 모드 + 다중 턴 user synthesis)
     - plan → implement 흐름 1회
-    - **`tasks/<modify_task_id>/recordings/`** (modify 데모, ADR-10 시연)
+    - **`tasks/modify-dijkstra-add-graph/recordings/`** (ADR-10 search-replace 시연)
     - compare 1회 (cross-vendor 비교)
 44. README 정돈 + 자동 생성 로직 (SYNTHESIS.md / compare.md / spec.md)
 45. 데모 녹화 (asciinema)

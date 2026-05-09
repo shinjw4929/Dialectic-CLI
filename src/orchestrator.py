@@ -15,6 +15,8 @@ import argparse
 import dataclasses
 import itertools
 import json
+import os
+import re
 import shutil
 import signal
 import subprocess
@@ -101,6 +103,56 @@ def SENTINEL_META(
 def _now_ts() -> str:
     """protocol.md §2 line 92 형식 1:1 — `2026-05-07T12:00:00.000Z`."""
     return datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+# plan 013 — task content slug + spec.md 경로 해소.
+# planner.md `:11`/`:139` + outline/04 `:199` SSOT narrative `<workdir>/specs/<task_id>.md` wiring.
+_SLUG_KEEP_RE = re.compile(r"[^a-z0-9가-힣\-_]")
+_SLUG_DASH_COLLAPSE_RE = re.compile(r"-+")
+
+
+def _task_to_slug(task: str, *, max_len: int = 50) -> str:
+    """자유 텍스트 task content → 안전한 파일명 slug (6단계 파이프라인).
+
+    1. 첫 max_len char truncate (UTF-8 char 단위, byte 아님 — 한글 1 char = 3 byte 가정 시
+       max_len=50 → ext4 max 255 byte 한도 내)
+    2. lowercase (한글은 무영향)
+    3. 영숫자(`a-z0-9`) + 한글(`가-힣` 완성형 11,172자) + `-` + `_` 만 유지, 그 외 → `-`
+    4. 연속 `-` → 단일
+    5. 양끝 `-` 제거
+    6. 빈 결과 → "task" fallback (task content가 모두 특수문자인 경우)
+
+    UTF-8 가정 (WSL/Linux). macOS NFD normalization·Windows native 미지원.
+    한자(`一-龥`)·일본어 등 다른 CJK는 의도적 단순화로 `-` 치환.
+    """
+    s = task[:max_len].lower()
+    s = _SLUG_KEEP_RE.sub("-", s)
+    s = _SLUG_DASH_COLLAPSE_RE.sub("-", s)
+    s = s.strip("-")
+    return s if s else "task"
+
+
+def _resolve_spec_path(workdir: Path, task: str, *, session_ts: str) -> Path:
+    """`<workdir>/specs/<slug>.md` 경로 결정 (top-level — session 격리 X).
+
+    - `_task_to_slug(task)` → slug
+    - `<workdir>/specs/` 디렉토리 mkdir(parents=True, exist_ok=True)
+    - 기본 경로: `<workdir>/specs/<slug>.md`
+    - 충돌 시 (이미 존재) → `<workdir>/specs/<slug>-<session_ts>.md` 접미사 fallback
+      (run_session session_ts 재사용 — filename-safe `%Y%m%dT%H%M%SZ` 보장,
+      session_dir 디렉토리명과 1:1 매핑되어 디버깅·tracking 정합)
+
+    spec.md 위치는 SSOT narrative(outline/04 `:199`/planner.md `:11`) 정합으로 top-level.
+    session 격리는 messages.jsonl/sessions/raw 한정 — plan 014 implement 모드 spec 소비
+    path 단순화.
+    """
+    slug = _task_to_slug(task)
+    specs_dir = workdir / "specs"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    primary = specs_dir / f"{slug}.md"
+    if primary.exists():
+        return specs_dir / f"{slug}-{session_ts}.md"
+    return primary
 
 
 def _detect_converged(text: str) -> bool:
@@ -451,12 +503,17 @@ def run_turn(
     sessions_dir: Path,
     skip_reviewer: bool = False,
     exclude_reviewer_history: bool = False,
+    spec_path: Path | None = None,
 ) -> None:
     """기존 driver→reviewer 1턴 라이프사이클.
 
     skip_reviewer=True (full s 분기) → reviewer 호출 skip. critique 메시지 미생성.
     exclude_reviewer_history=True (full a 분기) → driver build_prompt 호출 시
     history에서 critique 제외. default False 회귀 0.
+
+    spec_path 활성(plan 013, mode==plan 진입 시)이면 driver 응답 본문을 매 턴
+    `<workdir>/specs/<slug>.md`로 overwrite write. 마지막 정본 정책 (planner.md `:139`).
+    default None 회귀 0.
     """
     # 본 turn 시작 시 history snapshot — turn_id < N 메시지만. driver는 본 history,
     # reviewer는 history + 본 turn proposal (driver 응답 후 bus 재read).
@@ -526,6 +583,12 @@ def run_turn(
         text=resp1.text,
         meta=proposal_meta,
     )
+
+    # plan 013 — mode==plan 진입 시 매 턴 driver 응답을 spec.md로 overwrite write.
+    # planner.md `:139` "최종 spec.md는 사용자 e 결정 시점의 본 ROLE 출력" 정책 정합.
+    # reviewer 호출 전에 write — reviewer 실패해도 driver spec은 보존 (사용자 활용 가능).
+    if spec_path is not None:
+        spec_path.write_text(resp1.text, encoding="utf-8")
 
     if patches:
         status, error, files_changed = apply_patches(patches, workdir=workdir)
@@ -601,13 +664,43 @@ def run_turn(
     )
 
 
+def _resolve_workdir(args: argparse.Namespace) -> Path:
+    """우선순위: --workdir CLI > DIALECTIC_RUNS_DIR env > XDG_DATA_HOME/dialectic/runs > ~/.local/share/dialectic/runs.
+
+    base_dir은 mkdir(parents=True, exist_ok=True). 폴더명은 `<YYYYMMDD-HHMMSS>-<8char>`
+    (`tempfile.mkdtemp` suffix가 short-id 역할 — 1초 내 다중 세션 collision 0 보장).
+    반환은 `Path.resolve()`된 절대 경로 — symlink·상대경로 정규화 + `Meta.workdir` 일관성.
+
+    `DIALECTIC_RUNS_DIR`/`XDG_DATA_HOME` 빈 문자열은 falsy → 자연 fallback (명시적 빈 값 ignore).
+    ADR-6 차단(repo 루트·하위)은 호출자(`run_session`)의 책임 — 본 헬퍼는 base_dir 생성·경로 반환만.
+    """
+    if args.workdir:
+        return Path(args.workdir).resolve()
+    runs_env = os.environ.get("DIALECTIC_RUNS_DIR")
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if runs_env:
+        base_dir = Path(runs_env)
+    elif xdg:
+        base_dir = Path(xdg) / "dialectic" / "runs"
+    else:
+        base_dir = Path.home() / ".local" / "share" / "dialectic" / "runs"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    # UTC 정책 일관성 (모듈 헤더 line 6 ts SSOT) — local time 누수 차단.
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    # mkdtemp suffix(8자 random)가 short-id 역할 — 폴더명 = "<timestamp>-<8char>".
+    return Path(tempfile.mkdtemp(prefix=f"{timestamp}-", dir=str(base_dir))).resolve()
+
+
 def run_session(args: argparse.Namespace) -> int:
-    # Path.resolve() — symlink·상대경로 해소, Meta.workdir이 항상 절대 정규 경로.
-    workdir = (Path(args.workdir).resolve() if args.workdir
-               else Path(tempfile.mkdtemp(prefix="dialectic-")).resolve())
+    # workdir 해소 — 우선순위 표 SSOT는 _resolve_workdir docstring + cwd-isolation.md.
+    workdir = _resolve_workdir(args)
     # cleanup 정책: --workdir 미지정 시에도 결과 보존 (사용자가 messages.jsonl 확인 가능).
-    # mkdtemp 누적은 사용자 책임 (`/tmp/dialectic-*` 주기 정리). Day 3+ `--cleanup-workdir` 토글 검토.
+    # default base_dir(`~/.local/share/dialectic/runs/`) 누적은 사용자 책임. Day 3+ `--cleanup-workdir` 토글 검토.
     cleanup = False
+
+    # plan 013 — spec_path 사전 선언 (finally 블록에서 안내 출력 위해 try 외부 가시성 확보).
+    # 실제 계산은 mode==plan 분기에서 try 내부 (session_ts 산출 후).
+    spec_path: Path | None = None
 
     # ADR-6 우회 차단: --workdir이 Dialectic-CLI repo 루트 OR 그 하위 경로일 때 종료.
     # claude/codex가 cwd부터 부모 dir까지 CLAUDE.md/AGENTS.md auto-discovery하므로
@@ -615,7 +708,11 @@ def run_session(args: argparse.Namespace) -> int:
     # mkdtemp가 TMPDIR=repo 하위 edge에서 생성한 임시 dir도 leak 차단 (cleanup 후 SystemExit).
     DIALECTIC_REPO_ROOT = Path(__file__).resolve().parent.parent
     if workdir == DIALECTIC_REPO_ROOT or DIALECTIC_REPO_ROOT in workdir.parents:
-        if cleanup:
+        # C-008 surface 확장 (plan 010 phase-c 발견): --workdir 미지정 시 _resolve_workdir이
+        # auto-resolve한 base_dir이 env-driven으로 repo 하위(`DIALECTIC_RUNS_DIR=<repo>/runs`)이면
+        # mkdtemp가 사용자 의도와 무관하게 leak. cleanup flag와 무관하게 auto-resolved 경우 차단.
+        auto_resolved = args.workdir is None
+        if cleanup or auto_resolved:
             shutil.rmtree(workdir, ignore_errors=True)  # mkdtemp leak 차단 (C-008)
         raise SystemExit(
             f"--workdir이 Dialectic-CLI repo 루트 또는 그 하위 경로({workdir})입니다 (ADR-6). "
@@ -666,6 +763,14 @@ def run_session(args: argparse.Namespace) -> int:
         bus = Bus(session_dir / "messages.jsonl")
         bus.append(_task_msg(args.task, args.mode, workdir))
 
+        # plan 013 — mode==plan일 때 spec_path 1회 계산 (task 불변, slug 캐시).
+        # session_ts 재사용으로 충돌 fallback 파일명이 session_dir 디렉토리명과 1:1 매핑.
+        # spec.md는 top-level <workdir>/specs/ — session 격리(`<workdir>/<session_ts>/`)는
+        # messages.jsonl/sessions/raw 한정 (SSOT narrative outline/04 :199, planner.md :11).
+        # spec_path는 함수 상단에 None으로 선언됨 — finally 블록 안내 출력 위해 가시성 확보.
+        if args.mode == "plan":
+            spec_path = _resolve_spec_path(workdir, args.task, session_ts=session_ts)
+
         driver_runner = _resolve_runner(args.driver)
         reviewer_runner = _resolve_runner(args.reviewer)
 
@@ -676,18 +781,21 @@ def run_session(args: argparse.Namespace) -> int:
             return _run_session_end_only(
                 args, K, max_turns_runtime, bus,
                 driver_runner, reviewer_runner, workdir, sessions_dir,
+                spec_path=spec_path,
             )
 
         if args.interactive == "critical":
             return _run_session_critical(
                 args, K, max_turns_runtime, bus,
                 driver_runner, reviewer_runner, workdir, sessions_dir,
+                spec_path=spec_path,
             )
 
         if args.interactive == "full":
             return _run_session_full(
                 args, K, max_turns_runtime, bus,
                 driver_runner, reviewer_runner, workdir, sessions_dir,
+                spec_path=spec_path,
             )
 
         # 알 수 없는 interactive 값 — argparse choices가 차단하지만 방어.
@@ -700,11 +808,15 @@ def run_session(args: argparse.Namespace) -> int:
             shutil.rmtree(workdir, ignore_errors=True)
         else:
             # 사용자에게 session 폴더 + messages.jsonl 경로 안내 — 결과 확인 통로.
-            sys.stderr.write(
-                f"\n[run_session] session 보존: {session_dir}\n"
-                f"  messages.jsonl: {session_dir}/messages.jsonl\n"
-                f"  raw streams:    {session_dir}/sessions/\n"
-            )
+            # plan 013 — mode==plan 진입 시 spec.md 경로도 함께 안내 (사용자가 산출물 즉시 확인).
+            lines = [
+                f"\n[run_session] session 보존: {session_dir}",
+                f"  messages.jsonl: {session_dir}/messages.jsonl",
+                f"  raw streams:    {session_dir}/sessions/",
+            ]
+            if spec_path is not None and spec_path.exists():
+                lines.append(f"  spec.md:        {spec_path}")
+            sys.stderr.write("\n".join(lines) + "\n")
 
 
 def _run_session_end_only(
@@ -716,6 +828,8 @@ def _run_session_end_only(
     reviewer_runner: AgentRunner,
     workdir: Path,
     sessions_dir: Path,
+    *,
+    spec_path: Path | None = None,
 ) -> int:
     """end-only mode — 자동 dialectic, 사용자 prompt 0. AS-IS for-range 패턴 유지."""
     streak = 0
@@ -724,6 +838,7 @@ def _run_session_end_only(
             turn, args.mode,
             driver_runner=driver_runner, reviewer_runner=reviewer_runner,
             bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
+            spec_path=spec_path,
         )
         history_after = bus.read_all()
         last_msg = history_after[-1]
@@ -770,6 +885,8 @@ def _run_session_critical(
     reviewer_runner: AgentRunner,
     workdir: Path,
     sessions_dir: Path,
+    *,
+    spec_path: Path | None = None,
 ) -> int:
     """critical mode — 매 turn cleanup-restart pattern.
 
@@ -793,6 +910,7 @@ def _run_session_critical(
                     turn, args.mode,
                     driver_runner=driver_runner, reviewer_runner=reviewer_runner,
                     bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
+                    spec_path=spec_path,
                 )
             finally:
                 signal.signal(signal.SIGINT, prev_handler)
@@ -885,6 +1003,8 @@ def _run_session_full(
     reviewer_runner: AgentRunner,
     workdir: Path,
     sessions_dir: Path,
+    *,
+    spec_path: Path | None = None,
 ) -> int:
     """full mode — 매 턴 끝 prompt_decision (6지선다 a/r/m/i/e/s).
 
@@ -907,6 +1027,7 @@ def _run_session_full(
             bus=bus, task=args.task, workdir=workdir, sessions_dir=sessions_dir,
             skip_reviewer=skip_reviewer_next,
             exclude_reviewer_history=exclude_reviewer_history_next,
+            spec_path=spec_path,
         )
         history_after = bus.read_all()
         last_msg = history_after[-1]

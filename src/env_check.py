@@ -1,6 +1,7 @@
 """환경 점검 — claude/codex --version + auth/login status (벤더 대칭, P-VENDOR 환원).
 
 비용 0 호출 (token 사용 없음). code-conventions.md §3 (`:31-58`) cwd 명시 + 화이트리스트 정합.
+4개 sub-check는 `concurrent.futures.ThreadPoolExecutor`로 병렬 실행 — wall clock 직렬 합 worst 30s → max(개별 timeout) worst 10s 수준 축소 (외부 의존성 0).
 `claude doctor`는 영구 제외 (validation.md §4.4 P-VENDOR 환원 사례 1, 2026-05-09):
 - codex 외부 subprocess doctor 동등 명령 부재 (`/status`는 codex CLI 내부)
 - `claude doctor` capture_output=True 호출 시 tty/pipe 분기로 30s+ hang
@@ -9,6 +10,7 @@
 
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,12 @@ def _safe_env() -> dict[str, str]:
 
 
 def check_env() -> dict[str, dict[str, dict[str, Any]]]:
-    """비용 0 환경 점검 — claude/codex --version + auth/login status (벤더 대칭).
+    """4개 sub-check 병렬. 결과 dict는 원래 insertion 순서로 재조립.
+
+    외부 의존성 0 — concurrent.futures.ThreadPoolExecutor 사용.
+    `_safe_env()`는 함수 진입 시 1회 계산하여 4 future에 공유 (thread-safety: 읽기
+    전용 dict 전달이라 race 없음). 4 future 각각 `_run_capture` 호출. `executor.map`은
+    입력 순서로 결과 yield 보장 — `as_completed` 미사용 (완료 순서 비결정 회피).
 
     `claude doctor`는 영구 제외 (P-VENDOR 차단):
     - codex는 외부 subprocess로 부를 doctor 동등 명령 부재 (`/status`는 codex CLI 내부
@@ -50,16 +57,22 @@ def check_env() -> dict[str, dict[str, dict[str, Any]]]:
     - 사용자가 doctor 결과 필요 시 `claude doctor` 직접 호출 (외부 도구).
     """
     env_pass = _safe_env()
-    return {
-        "claude": {
-            "version": _run_capture(["claude", "--version"], env=env_pass, timeout=5),
-            "auth":    _run_capture(["claude", "auth", "status"], env=env_pass, timeout=10),
-        },
-        "codex": {
-            "version": _run_capture(["codex", "--version"], env=env_pass, timeout=5),
-            "login":   _run_capture(["codex", "login", "status"], env=env_pass, timeout=10),
-        },
-    }
+    # (tool, sub, cmd, timeout) — 순서 = 출력 dict insertion 순서
+    specs: list[tuple[str, str, list[str], int]] = [
+        ("claude", "version", ["claude", "--version"], 5),
+        ("claude", "auth",    ["claude", "auth", "status"], 10),
+        ("codex",  "version", ["codex", "--version"], 5),
+        ("codex",  "login",   ["codex", "login", "status"], 10),
+    ]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        results = list(ex.map(
+            lambda s: _run_capture(s[2], env=env_pass, timeout=s[3]),
+            specs,
+        ))
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for (tool, sub, _cmd, _to), result in zip(specs, results):
+        out.setdefault(tool, {})[sub] = result
+    return out
 
 
 def _run_capture(

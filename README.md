@@ -78,7 +78,7 @@ dialectic doctor           # claude/codex --version + auth status (비용 0)
 - claude: `claude auth` (Max 구독 OAuth 또는 `ANTHROPIC_API_KEY` 환경변수)
 - codex: `codex login` (또는 `OPENAI_API_KEY` 환경변수)
 
-`--workdir` 안내 — 미지정 시 `tempfile.mkdtemp(prefix="dialectic-")`로 임시 dir 자동 생성. **Dialectic-CLI repo 루트는 ADR-6에 의해 사용 불가** (개발용 .md가 런타임 prompt에 누수되므로 SystemExit).
+`--workdir` 안내 — 미지정 시 `~/.local/share/dialectic/runs/<YYYYMMDD-HHMMSS>-<8char>/`에 자동 생성 (XDG Base Directory Specification 준수, plan 010 Phase C). 우선순위: `--workdir` CLI > `DIALECTIC_RUNS_DIR` 환경변수 > `XDG_DATA_HOME/dialectic/runs/` > default. **Dialectic-CLI repo 루트·하위는 ADR-6에 의해 사용 불가** — base_dir 자체가 repo 하위인 env 설정도 차단됨 (개발용 .md가 런타임 prompt에 누수되므로 SystemExit).
 
 ---
 
@@ -94,6 +94,8 @@ dialectic run --task "Reply with single digit: 1+1=?" \
     --driver codex --reviewer claude --max-turns 1
 ls /tmp/dialectic-demo/                                    # <UTC timestamp>/ session 폴더 (예: 20260509T071838Z) — workdir 재호출 시 별도 폴더 격리 (plan 011 Bug 2 fix)
 cat /tmp/dialectic-demo/<session-ts>/messages.jsonl        # 4 라인+ (task + proposal + critique + meta)
+dialectic logs --tail 10                                   # 최근 10 메시지 1줄 요약 (자동: base_dir 우선순위로 최신 session 탐색 — plan 010 Phase A)
+dialectic logs --workdir /tmp/dialectic-demo --session 20260509T071838Z --full --kind critique  # 명시 session의 critique 본문 펼침
 ```
 
 > **메뉴 한글 입력 결함**: terminal emulator + line discipline + IME 조립 layer 합성으로 Backspace 표시가 부정확할 뿐 아니라 IME 조립 단계에서 **일부 char가 buffer에 누락**될 수 있습니다 (실 검증 사례: 28 char 입력 → 21 char 누적). 진행 확인 단계의 `task: '...'` echo back으로 시각 검증하고, 정확한 입력이 필요하면 `dialectic run --task "..."` CLI 인자로 우회 권장. 자세한 결함 분석은 `docs/dev-docs/validation.md §3 C-011`.
@@ -103,7 +105,7 @@ cat /tmp/dialectic-demo/<session-ts>/messages.jsonl        # 4 라인+ (task + p
 | 옵션 | default | 설명 |
 |---|---|---|
 | `--task <text>` | (필수) | 사용자 task 한 줄 (driver/reviewer prompt §2 TASK 주입) |
-| `--workdir <path>` | `tempfile.mkdtemp(prefix='dialectic-')` | 작업 디렉토리. 미지정 시에도 cleanup X — 결과 확인 통로. 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 session_dir + `messages.jsonl` 경로 안내. `/tmp/dialectic-*` 누적은 사용자가 주기 정리. **Dialectic-CLI repo 루트·하위 사용 불가** (ADR-6, SystemExit) |
+| `--workdir <path>` | `~/.local/share/dialectic/runs/<YYYYMMDD-HHMMSS>-<8char>/` (plan 010 Phase C, XDG 준수) | 작업 디렉토리. 우선순위: `--workdir` CLI > `DIALECTIC_RUNS_DIR` env > `XDG_DATA_HOME/dialectic/runs/` > default. 미지정 시에도 cleanup X — 결과 확인 통로. 매 호출마다 `<workdir>/<UTC ts>/` 세션 폴더 자동 생성 (workdir 재호출 시 격리, plan 011 Bug 2 fix). 종료 시 stderr에 session_dir + `messages.jsonl` 경로 안내. base_dir 누적은 사용자가 주기 정리. **Dialectic-CLI repo 루트·하위 사용 불가** (ADR-6, SystemExit. base_dir이 repo 하위인 env 설정도 차단) |
 | `--driver {codex,claude}` | `codex` | thesis 발화 위치 |
 | `--reviewer {codex,claude}` | `claude` | antithesis 발화 위치 |
 | `--max-turns N` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)`. 양수만 (`_positive_int` 가드) |
@@ -116,7 +118,7 @@ cat /tmp/dialectic-demo/<session-ts>/messages.jsonl        # 4 라인+ (task + p
 ## 현재 동작 모드
 
 - **Day 2**: `run` 모드만 정식 검증 (driver+reviewer 한 턴 E2E + `[CONVERGED]` 자동 종료).
-- **Day 3+ 진행**: `--mode {run,plan,implement}` choices 확장 + 메뉴 5단계 노출 + `--interactive {end-only,critical,full}` mode dial + workdir 세션 격리 (plan 009/011 산출). `compare`는 별도 subcommand (미구현 — 후속 plan). `--mode plan`은 planner ROLE 응답을 JSONL에 보존하지만 spec.md auto-save는 미구현 (plan 013 backlog).
+- **Day 3+ 진행**: `--mode {run,plan,implement}` choices 확장 + 메뉴 5단계 노출 + `--interactive {end-only,critical,full}` mode dial + workdir 세션 격리 (plan 009/011 산출). `compare`는 별도 subcommand (미구현 — 후속 plan). `--mode plan`은 매 턴 planner 응답을 JSONL에 보존하면서 `<workdir>/specs/<slug>.md`로도 자동 저장 (plan 013 산출, top-level — session 격리 X. 충돌 시 `<slug>-<session_ts>.md` fallback. 후속 plan 014에서 implement 모드 입력으로 활용).
 - **Day 3+**: 사용자 6지선다 UI, mock 어댑터, `compare --parallel`, `dialectic logs`.
 
 ---

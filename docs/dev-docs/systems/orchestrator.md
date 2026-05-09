@@ -24,6 +24,25 @@ return datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace(
 
 `protocol.md §2 line 92` 1:1. 정규식 `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$` 매치.
 
+### `_task_to_slug(task, *, max_len=50) -> str` (plan 013)
+
+자유 텍스트 task content → 안전한 파일명 slug. 6단계 파이프라인:
+
+1. 첫 `max_len` char truncate (UTF-8 char 단위, byte 아님)
+2. lowercase (한글 무영향)
+3. 영숫자(`a-z0-9`) + 한글(`가-힣` 완성형 11,172자) + `-` + `_` 만 유지, 그 외 → `-`
+4. 연속 `-` → 단일 (`re.sub(r"-+", "-")`)
+5. 양끝 `-` 제거 (`strip("-")`)
+6. 빈 결과 → `"task"` fallback
+
+WSL/Linux UTF-8 가정. macOS NFD/Windows 미지원. 한자(`一-龥`)·일본어 등 다른 CJK는 의도적 단순화로 `-`.
+
+### `_resolve_spec_path(workdir, task, *, session_ts) -> Path` (plan 013)
+
+`<workdir>/specs/<slug>.md` (top-level — session 격리 X) 경로 결정 + `specs/` 디렉토리 mkdir. 충돌 시 `<workdir>/specs/<slug>-<session_ts>.md` 접미사 fallback. `session_ts`는 `run_session :744` 산출(`%Y%m%dT%H%M%SZ`) 그대로 재사용 — filename-safe 보장 + session_dir 디렉토리명과 1:1 매핑(디버깅 정합).
+
+spec.md 위치는 SSOT narrative(outline/04 `:199`/planner.md `:11`) 정합으로 top-level. session 격리(`<workdir>/<session_ts>/`)는 messages.jsonl/sessions/raw 한정 — plan 014 implement 모드 spec 소비 path 단순화 부수효과.
+
 ### `_detect_converged(text: str) -> bool` (outline/02 §2.9)
 
 ```python
@@ -84,7 +103,7 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 
 ## 턴 라이프사이클
 
-### `run_turn(turn_id, mode, *, driver_runner, reviewer_runner, bus, task, workdir, sessions_dir, skip_reviewer=False, exclude_reviewer_history=False) -> None`
+### `run_turn(turn_id, mode, *, driver_runner, reviewer_runner, bus, task, workdir, sessions_dir, skip_reviewer=False, exclude_reviewer_history=False, spec_path=None) -> None`
 
 keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사이클 R0~R4 구현. `skip_reviewer=True` (full s 분기) 시 reviewer 호출 skip + critique 미생성 (다음 턴 parent_id는 `_last_proposal_msg_id` fallback). `exclude_reviewer_history=True` (full a 분기) 시 driver `build_prompt`에 `exclude_reviewer=True` 전달 (이전 턴 critique 제외). 둘 다 default `False` 회귀 0.
 
@@ -111,14 +130,34 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 `dataclasses.replace`로 frozen Meta 변경 X (어댑터 meta 정직성 — 새 Meta 생성). `apply_patches`는 path validation·dry-run·all-or-nothing commit·best-effort 롤백 (patch_apply.md 정통).
 
+**spec_path wiring** (plan 013): `spec_path` 활성(`mode==plan` 진입 시 `run_session`에서 `_resolve_spec_path` 1회 계산)이면 driver 응답 `bus.append(proposal)` + `print_message` 직후 `spec_path.write_text(resp1.text, encoding="utf-8")` overwrite — reviewer 호출 전이라 reviewer 실패해도 driver spec 보존. 매 턴 마지막 정본 정책 (planner.md `:139` 정합). default `None` 회귀 0. `_run_session_*` 3종(`end_only`/`critical`/`full`) 모두 keyword-only `*, spec_path: Path | None = None`로 전달.
+
+`run_session` 종료 시 stderr 안내(`finally` 블록)에 spec.md 경로 1줄 추가 — `mode==plan` + `spec_path.exists()` 시점에만 노출(빈 응답·write 실패 시 미노출). 사용자가 messages.jsonl과 함께 spec.md 산출물을 즉시 확인하는 통로. spec_path 변수는 함수 상단(`cleanup = False` 직후)에 `None`으로 사전 선언 — `try` 블록 외부 가시성 확보.
+
 **UI wiring** (plan 008-ui-polish): driver/reviewer 호출은 `with stdin_canonical_off(), Spinner(...)` 중첩으로 wrap — Spinner는 stderr 진행 표시(`[{ROLE_LABEL_KO[role]}: {VENDOR_LABEL[runner.name]}] running... ⠋`, outline/03-ux §3.2:190 SSOT 1:1, isatty 가드 보유), `stdin_canonical_off`은 호출 동안 사용자 키 누름이 line으로 완성되어 다음 prompt에 누수되는 결함 차단(line discipline off + drain thread + INTR `\x03` 감지 시 SIGINT raise). 단계 종료 후 KeyboardInterrupt는 `cli._interactive_menu`의 `run_session` try/except까지 propagate되어 종료 확인 prompt로 처리(`_safe_input`과 동일 패턴). proposal/critique 정상 응답 시 `bus.append` 직후 `src/ui.py:print_message`로 stdout에 구분선·헤더(`✓ {latency}s · {tokens}` + cost optional)·본문 출력. ANSI 색상 outline §3.5:362 (proposal=cyan, critique=yellow). `kind in ("proposal", "critique")`만 처리 — 빈 응답·error 분기는 stdout 출력 X (후속 plan 검토).
+
+### `_resolve_workdir(args: argparse.Namespace) -> Path` (plan 010 Phase C)
+
+workdir 해소 헬퍼 — 우선순위 표:
+
+| 순위 | 입력 | base_dir |
+|---|---|---|
+| 1 | `--workdir` CLI 인자 | (절대 경로 그대로 — base_dir·timestamp 적용 X) |
+| 2 | `DIALECTIC_RUNS_DIR` 환경변수 | `$DIALECTIC_RUNS_DIR/` |
+| 3 | `XDG_DATA_HOME` 환경변수 | `$XDG_DATA_HOME/dialectic/runs/` |
+| 4 | (default) | `~/.local/share/dialectic/runs/` (XDG Base Directory Specification) |
+
+base_dir은 `mkdir(parents=True, exist_ok=True)` 사전 생성. 폴더명 = `<YYYYMMDD-HHMMSS>-<8char>` (`tempfile.mkdtemp(prefix=f"{timestamp}-", dir=base_dir)` suffix가 short-id 역할 — 1초 내 다중 세션 collision 0). 반환은 `Path.resolve()`된 절대 경로.
+
+빈 문자열 환경변수는 falsy → 자연 fallback (명시적 빈 값 ignore). ADR-6 차단(repo 루트·하위 SystemExit)은 호출자(`run_session`) 책임 — 본 헬퍼는 base_dir 생성·경로 반환만.
 
 ### `run_session(args: argparse.Namespace) -> int`
 
 ```
-1. workdir = Path(args.workdir).resolve() if args.workdir else mkdtemp().resolve()
+1. workdir = _resolve_workdir(args)  # 우선순위 표 SSOT는 _resolve_workdir
    - workdir == DIALECTIC_REPO_ROOT or in parents → cleanup leak 차단 + SystemExit (ADR-6, C-008)
-2. cleanup = False  # Day 2: --workdir 미지정 시에도 결과 보존 (사용자 확인 통로, C-010)
+   - base_dir 자체가 repo 하위면(예: DIALECTIC_RUNS_DIR=<repo>/runs) mkdtemp 후 즉시 차단
+2. cleanup = False  # --workdir 미지정 시에도 결과 보존 (사용자 확인 통로, C-010)
 3. ADR-9 fallback:
    - K = args.convergence_streak
    - if max_turns < K + 1 and K > 1:
@@ -206,6 +245,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 |---|---|
 | `MODE_ROLES` dict 키 추가/제거 | 본 §모듈 상수 + `protocol.md §3` + `runtime-docs/systems/INDEX.md` 4 모드 매트릭스 + 영향 받는 모드 파일 |
 | `run_turn`/`run_session` 분기 추가 | 본 §턴 라이프사이클 + `runtime-docs/systems/<mode>.md` |
+| `_resolve_workdir` 우선순위 표·default 경로 변경 | 본 §_resolve_workdir 표 + `cwd-isolation.md` §Layer 2 + `runtime-docs/systems/run-mode.md §1 --workdir 행` + `tests/test_workdir_default.py` |
 | `[CONVERGED]` 알고리즘 (outline/02 §2.9) | 본 §_detect_converged + `run-mode.md` |
 | ADR-9 fallback 가드 | 본 §run_session + `run-mode.md §4` |
 | 헬퍼 4종 시그니처 | 본 §메시지 생성 헬퍼 + `code-conventions.md` |

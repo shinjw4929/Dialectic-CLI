@@ -50,7 +50,7 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 ✅ Q1  세션 연속성 = stateless + 풀 트랜스크립트 주입
 ✅ Q2  포지션 매핑(벤더) = --driver/--reviewer 자유, 두 시나리오 비교 narrative
 ✅ Q3  관찰 = 내장 `dialectic logs` 서브커맨드 (외부 명령 안내 X). 도구 자체가 1차 인터페이스
-🟡 Q4  데모 task = Day 1 .md 끝 직후 결정 (Q13 따라 wave_difficulty 1순위)
+✅ Q4  데모 task = 시나리오 라이브러리 2종 — `tasks/implement-dijkstra/` (구현 시나리오, scratch + 다중 턴 user synthesis) + `tasks/modify-dijkstra-add-graph/` (수정 시나리오, ADR-10 search-replace). 평가 환경 의존성 0(matplotlib/heapq 표준), 도메인 비종속.
 ✅ Q5  mock 모드 = 사전녹음 재생 + --record 플래그 + 인증 부재 시 자동 fallback (Q12·C)
 ✅ Q6  종료 조건 = b 우선 (reviewer [CONVERGED] 마커 + 연속 K=2턴 P0/P1=0 → 자동 e). 안전망: a (--max-turns), c (사용자 e/Ctrl-C). K는 --convergence-streak 조정.
 ✅ Q7  UI = A로 시작, Day 3에 rich 부분 도입 검토 (C는 스코프 외)
@@ -69,5 +69,5 @@ cross-reference: 본문 안의 `§2.7`, `§1.3` 등 표기는 위 매핑 표를 
 🟡 Q20 사전 의존성(Python·claude/codex CLI) 검증 책임 = 미정 (옵션: a) setup.sh가 검증 + 미설치 시 install URL 출력 / b) `dialectic` 실행 시점 환경 점검(§3.2)만 / c) 둘 다). 현재는 (b)만 있어 setup 단계에서 누락 사실을 모름 — 03-ux.md:107-122
 🟡 Q21 tasks/<id>/recordings/ git commit 정책 = 미정 (옵션: a) commit 필수 — 인증 부재 mock fallback 보장 / b) .gitignore + 첫 실행 시 다운로드 / c) 별도 브랜치). Q5·C(인증 부재 자동 mock fallback)의 전제 조건. Day 4 녹음 자산이 repo에 들어가는지 04-§4.4에 못 박혀야 함 — 04-requirements-and-modes.md:111-130, 05-timeline.md:100
 ✅ Q22 코드 수정 메커니즘 = A2 (search-replace 블록). LLM 응답에 `FILE: ... <<<<<<< SEARCH / ======= / >>>>>>> REPLACE` 텍스트 → orchestrator parser 적용. line number 의존 0으로 LLM 오류 면역. parser ~30 LOC. 어댑터 텍스트 in/out 추상화 유지 (대안 C: CLI 네이티브 도구 사용 — 추상화 누수 risk로 기각). 적용 — §2.2 메시지 스키마, §2.3 턴 라이프사이클, §1.4 implementer 셀프체크, §4.6 비용
-✅ Q23 데모 task에 modify 시나리오 = c (modify 전용 task 신규 추가). 기존 wave_difficulty(신규 작성) 유지 + tasks/<modify_task_id>/ (예: 기존 룰 함수 결함 수정) 별도 추가. 신규+수정 양쪽 시연. modify task 본문 작성은 별도 후속 plan — 04-§4.3 후보 표에 항목만 명시
+✅ Q23 데모 task에 modify 시나리오 = c (modify 전용 task 신규 추가). 시나리오 라이브러리 2건으로 정착 — `tasks/implement-dijkstra/`(scratch + 다중 턴 user synthesis) + `tasks/modify-dijkstra-add-graph/`(ADR-10 search-replace 시연, seed `dijkstra.py` 함께). 신규+수정 양쪽 시연 자산 확보.
 ```

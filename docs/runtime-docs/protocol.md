@@ -230,6 +230,17 @@ MODE_ROLES = {
 
 mode가 정해지면 role은 자동. 사용자가 신경 안 써도 됨. mode 한 단어만 보면 어떤 ROLE 쌍인지 자명.
 
+### 모드별 산출물 (plan 013)
+
+| mode | 산출물 | 위치 SSOT |
+|---|---|---|
+| `run` | `<workdir>/<file>.py` (코드, search-replace patch) | `protocol.md §4` patch_applied |
+| `plan` | `<workdir>/specs/<slug>.md` (top-level — session 격리 X) | `src/orchestrator.py:_resolve_spec_path` (plan 013) |
+| `implement` | `<workdir>/<file>.py` (run과 동일) | `protocol.md §5 :273` (`task 대신 spec.md 본문 주입`) |
+| `compare` | `logs/runs/<ts>/compare.md` | (별도 plan) |
+
+`plan` 모드 spec.md는 매 턴 driver(planner) 응답을 overwrite write — 마지막 정본 정책. 충돌 시 `<workdir>/specs/<slug>-<session_ts>.md` fallback (session_dir 디렉토리명과 1:1 매핑). 자세히는 `docs/dev-docs/systems/orchestrator.md` `_resolve_spec_path` / `run_turn` spec_path wiring.
+
 ---
 
 ## 4. 한 턴의 라이프사이클

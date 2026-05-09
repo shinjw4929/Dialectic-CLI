@@ -22,7 +22,7 @@
 | 2 | **사용자가 이 협업 과정에 개입하거나 관찰할 수 있어야 합니다** | (개입) 매 턴 종료 6지선다(a/r/m/i/e/s) + directive 자유 텍스트 — 단순 승인 아닌 synthesis 생성. (관찰) 실시간 화면 + `dialectic logs --follow` 내장 명령 + 사후 `messages.jsonl` + `SYNTHESIS.md` | `kind=decision` 메시지 + `docs/dev-docs/architecture.md` §통신 모델 |
 | 3 | **통신 방식, 프로토콜, UI, 언어·프레임워크는 자유** | Python 3.10+ · subprocess + headless mode · JSONL · stdin/stdout TUI (Rich/Textual 미사용 — 의존성 0 우선) | `docs/runtime-docs/protocol.md` |
 | 4 | **AI 코딩 에이전트를 사용하여 개발해야 합니다** | 본 repo 자체를 Claude Code + Codex CLI 페어 프로그래밍으로 작성. dev-time .md(`CLAUDE.md` / `AGENTS.md` / `docs/dev-docs/Documentation-Checklist.md` / `.claude/skills/*`) 보존 | `prompts/`, `git log` (의미 단위 commit), `.claude/skills/` |
-| 5 | **README대로 실행했을 때 동작해야 합니다** | `setup.sh` 한 스크립트 + mock 모드 자동 fallback (인증 부재 시) → 임의 환경에서 막힘 0 | `README.md` 첫 단락, `dialectic run --mock tasks/wave_difficulty` |
+| 5 | **README대로 실행했을 때 동작해야 합니다** | `setup.sh` 한 스크립트 + mock 모드 자동 fallback (인증 부재 시) → 임의 환경에서 막힘 0 | `README.md` 첫 단락, `dialectic run --task "$(cat tasks/implement-dijkstra/task.md)"` (구현 시나리오) / `tasks/modify-dijkstra-add-graph/` (수정 시나리오) |
 
 ---
 
@@ -57,7 +57,7 @@
 ## 6. 빠른 자가 검증 (1분 동선)
 
 1. **메일 본문**과 §2 표를 1:1로 비교 → 누락 0 확인
-2. `dialectic run --mock tasks/wave_difficulty` 실행 → 5초 안에 화면 흐름 시작
+2. `dialectic` 메뉴 진입 또는 `tasks/implement-dijkstra/task.md` 본문으로 `dialectic run` → 화면 흐름 시작 (구현 시나리오) / `tasks/modify-dijkstra-add-graph/` 사전 준비 후 수정 시연
 3. `cat logs/messages.jsonl | head -20` → driver/reviewer/user 3 발화자가 한 task에 대해 메시지 교환
 4. `docs/dev-docs/architecture.md` ADR 8개 표 → 핵심 결정 5분 안에 훑기
 

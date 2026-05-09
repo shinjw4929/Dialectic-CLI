@@ -21,6 +21,28 @@ dialectic doctor   # 인자 없음
 
 각 호출은 `_run_capture(cmd, env, timeout, cwd=None)` → `subprocess.run(... cwd=cwd or Path.home(), env=env, check=False)`.
 
+## 병렬 호출 (plan 010-observability Phase B, 2026-05-09)
+
+4개 sub-check는 `concurrent.futures.ThreadPoolExecutor(max_workers=4)`로 동시 실행 — 외부 의존성 0 (표준 라이브러리). wall clock 직렬 합 worst 30s → max(개별 timeout) worst 10s 수준 축소.
+
+```python
+specs = [
+    ("claude", "version", ["claude", "--version"], 5),
+    ("claude", "auth",    ["claude", "auth", "status"], 10),
+    ("codex",  "version", ["codex", "--version"], 5),
+    ("codex",  "login",   ["codex", "login", "status"], 10),
+]
+with ThreadPoolExecutor(max_workers=4) as ex:
+    results = list(ex.map(lambda s: _run_capture(s[2], env=env_pass, timeout=s[3]), specs))
+```
+
+- `executor.map`은 입력 순서로 결과 yield → 별도 재정렬 불필요 (`as_completed` 미사용 — 완료 순서 비결정 회피)
+- `_safe_env()` 1회 계산 후 4 future에 공유 (읽기 전용 dict 전달이라 race 없음)
+- `_run_capture` 시그니처 변경 X — 호출자만 병렬화. subprocess는 process-level이라 4개 동시에 timeout 도달해도 future 독립
+- 결과 dict insertion 순서 보존: claude/version → claude/auth → codex/version → codex/login (사용자 표 안정성)
+- 측정: stub sleep 1s × 4 sub-check 시 직렬 합 4s 대비 병렬 wall clock ≤ 1.5s 단언 (`tests/test_env_check_parallel.py`)
+
+
 **`claude doctor` 영구 제외** (validation.md §4.4 P-VENDOR 환원 사례 1, 2026-05-09):
 - codex는 외부 subprocess로 부를 doctor 동등 명령 부재 (`/status`는 codex CLI 내부 슬래시 명령) — claude doctor만 호출 시 벤더 비대칭.
 - `claude doctor`가 capture_output=True 호출 시 tty/pipe 분기로 30s+ hang (사용자 환경 사례: tty 0.5s vs subprocess 12s+ timeout).
