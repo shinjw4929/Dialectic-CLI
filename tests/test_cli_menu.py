@@ -46,7 +46,8 @@ def test_interactive_menu_empty_task_retries_until_eof(monkeypatch, capsys, stub
 
     plan 008-ui-polish hot-fix: 빈 task = 종료가 아닌 retry. Ctrl-C/EOF만 안전 종료.
     """
-    inputs = iter(["   ", "", "  \t  "])  # 3회 빈 입력 후 EOF (StopIteration → EOFError)
+    # 단계 2 mode 선택은 Enter(default run) 통과 후 task input retry 시나리오 진입
+    inputs = iter(["", "   ", "", "  \t  "])  # mode default → 3회 빈 task 후 EOF
 
     def _seq(prompt: str = "") -> str:
         try:
@@ -86,7 +87,8 @@ def test_interactive_menu_task_dispatches_run_session(monkeypatch, stub_check_en
 
     Namespace max_turns=1 (default), 다른 필드는 default 매핑 정합.
     """
-    inputs = iter(["demo task", "", ""])  # task → max-turns(default) → confirm(Y default)
+    # mode default → task → mapping default → workdir default → max-turns default → confirm Y
+    inputs = iter(["", "demo task", "", "", "", ""])
     monkeypatch.setattr(cli, "_readline_input", lambda prompt="": next(inputs))
 
     captured = {}
@@ -111,7 +113,8 @@ def test_interactive_menu_task_dispatches_run_session(monkeypatch, stub_check_en
 
 def test_interactive_menu_max_turns_custom(monkeypatch, stub_check_env):
     """max-turns 명시 입력 '5' → Namespace.max_turns=5로 dispatch."""
-    inputs = iter(["demo task", "5", ""])  # task → max-turns 5 → confirm Y
+    # mode default → task → mapping default → workdir default → max-turns 5 → confirm Y
+    inputs = iter(["", "demo task", "", "", "5", ""])
     monkeypatch.setattr(cli, "_readline_input", lambda prompt="": next(inputs))
 
     captured = {}
@@ -126,7 +129,8 @@ def test_interactive_menu_max_turns_custom(monkeypatch, stub_check_env):
 
 def test_interactive_menu_max_turns_invalid_retries(monkeypatch, capsys, stub_check_env):
     """max-turns 비정수/음수 입력 → retry. 빈 입력 fallback default 1."""
-    inputs = iter(["demo task", "abc", "0", "", ""])  # task → invalid → 0 → 빈(1) → confirm Y
+    # mode default → task → mapping default → workdir default → max-turns invalid → 0 → 빈(1) → confirm Y
+    inputs = iter(["", "demo task", "", "", "abc", "0", "", ""])
     monkeypatch.setattr(cli, "_readline_input", lambda prompt="": next(inputs))
 
     captured = {}
@@ -148,10 +152,16 @@ def test_interactive_menu_task_prompt_shows_example(monkeypatch, capsys, stub_ch
     plan 008-ui-polish hot-fix: prompt 자체는 짧게 ('task> ', readline wide-char 결함 차단),
     example·도움말 안내는 별도 print 라인. capsys.out에 'example' substring 단언.
     """
-    def _raise_eof(prompt: str = "") -> str:
-        raise EOFError
+    # mode 단계 default 통과 → task input 단계 진입 → EOF 종료
+    inputs = iter([""])
 
-    monkeypatch.setattr(cli, "_readline_input", _raise_eof)
+    def _seq(prompt: str = "") -> str:
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr(cli, "_readline_input", _seq)
     rc = cli._interactive_menu()
     assert rc == 0
     out = capsys.readouterr().out
@@ -165,8 +175,8 @@ def test_interactive_menu_confirm_n_retries_task_input(monkeypatch, capsys, stub
     plan 008-ui-polish hot-fix: 'n' 거부 = 전체 종료가 아닌 task 재입력. 빈 task도
     재요청. Ctrl-C/EOF만 안전 종료.
     """
-    # task → max-turns(default 1) → confirm n → 빈 task retry → EOFError 종료
-    inputs = iter(["test task", "", "n", ""])
+    # mode default → task → mapping default → workdir default → max-turns(default 1) → confirm n → 빈 task retry → EOFError 종료
+    inputs = iter(["", "test task", "", "", "", "n", ""])
 
     def _seq(prompt: str = "") -> str:
         try:
@@ -193,7 +203,7 @@ def test_interactive_menu_confirm_n_retries_task_input(monkeypatch, capsys, stub
 
 def test_interactive_menu_help_key_retries(monkeypatch, capsys, stub_check_env):
     """task input '?' → 도움말 출력 + retry. 빈 입력도 retry. EOF로 종료."""
-    inputs = iter(["?", ""])  # ? → 도움말 retry, 빈 → 재요청 retry, StopIteration → EOFError 종료
+    inputs = iter(["", "?", ""])  # mode default → ? → 도움말 retry, 빈 → 재요청 retry, EOF
 
     def _seq(prompt: str = "") -> str:
         try:
