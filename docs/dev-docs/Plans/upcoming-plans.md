@@ -1,6 +1,8 @@
 # Upcoming Plans Overview
 
-> plan 008-ui-polish 완료 후 진입 예정인 plan 009 / 010 / 011 / 012의 scope 개요. 각 plan이 실제 작성될 때 본 문서를 SSOT로 인용. 진입 후에는 plan 폴더 본문이 정본 — 본 문서는 backlog 메모.
+> 진입 예정 plan scope 개요. 각 plan이 실제 작성될 때 본 문서를 SSOT로 인용. 진입 후에는 plan 폴더 본문이 정본 — 본 문서는 backlog 메모.
+>
+> 완료 plan: plan 008-ui-polish, plan 009-user-synthesis-wiring (`plan/completed/`)
 
 작성 정책:
 - 결정 결과만 기록 (working out narrative 금지)
@@ -13,9 +15,9 @@
 
 ```mermaid
 flowchart LR
-    P008[plan 008<br/>ui-polish<br/>active]
+    P008[plan 008<br/>ui-polish<br/>completed]
     P007[plan 007<br/>mock-adapter<br/>deferred]
-    P009[plan 009<br/>user-synthesis-wiring]
+    P009[plan 009<br/>user-synthesis-wiring<br/>completed]
     P010[plan 010<br/>observability]
     P011[plan 011<br/>menu-expansion]
     P012[plan 012<br/>model-config]
@@ -25,8 +27,6 @@ flowchart LR
     P008 --> P011
     P007 --> P012
     P012 --> P011
-
-    P008 -.동등 우선순위.- P012
 ```
 
 - plan 008·007은 본 문서 범위 외 (각각 active / mock 어댑터)
@@ -35,7 +35,7 @@ flowchart LR
 
 ---
 
-## plan 009-user-synthesis-wiring
+## plan 009-user-synthesis-wiring (✓ completed → `plan/completed/009-user-synthesis-wiring/`)
 
 ### 의도
 
