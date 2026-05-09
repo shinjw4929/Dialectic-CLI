@@ -149,6 +149,7 @@ class AgentRunner(Protocol):
 - **cleanup-restart**: 매 턴 시작 시 `with TriggerListener() as trigger`로 새로 진입, 턴 끝 `__exit__` (try/finally `tcsetattr` 복원). subprocess `claude/codex` 호출 동안 stdin 충돌 차단 — `run_turn` 내부 `stdin_canonical_off` 컨텍스트와 가동 시점 분리 (R5)
 - **threading.Event**: 리스너 thread가 Ctrl+F (chr(0x06)) 감지 시 set. `is_set()`로 main thread 비동기 polling (턴 끝)
 - **SIGINT hand-off**: `_setup_sigint_handler(listener)` 등록 — abort 시 `listener.__exit__`로 raw mode 복원 후 `sys.exit(130)` (POSIX SIGINT 표준 종료 코드, R3)
+- **byte 절도 race 부분 완화 (plan 015 Phase C ① 부분 fix, R-NNN 미할당)**: listener thread `os.read(fd, 1)` byte 절도 후 `self._byte_queue: queue.Queue[bytes]` (maxsize=1024)에 보존 → `__exit__` finally에서 thread join 후 `while True: queue.get_nowait() except queue.Empty: break` drain loop로 잔존 byte **discard** (forward 금지 — 사용자 'y'/한글 입력에 trigger byte(0x06) prefix 누수 차단). tcsetattr TCSAFLUSH + tcflush TCIFLUSH 직전 수행. 단 본 fix는 광역 패턴 부분 완화 — `tools/repro_listener.py` 수동 시연(에이전트 호출 0)에서 race 0/4, 실 dialectic CLI 시연(WSL2 PTY)에서는 race 잔존. 신규 raw mode listener 추가 시 동일 패턴 + 사용자 환경 한계 narrative 참조 (validation.md C-015 + plan 015 부분 fix narrative, R-NNN 환원 보류)
 
 ---
 

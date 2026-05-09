@@ -72,6 +72,7 @@
 - **검사 자동화**: `grep -nE "(read_text|write_text|open|subprocess\.run)\(" src/ tests/` 후 `encoding=` 인자 부재 시 P0 보고. **subprocess.run의 text=True 케이스도 포함** (round 5에서 누락 catch됨 — 검사 패턴 광역화 필요).
 - **관련 §3 후보**: C-006 (본 R-001로 승격됨, §3에서 §2로 이동 narrative)
 
+
 ---
 
 ## 3. 환원 가능 후보 (관찰 중)
@@ -256,34 +257,40 @@
 
 - **계층**: Knowledge (인터페이스 — orchestrator 실패 모드)
 - **도메인**: 안전성 — catch 범위 부족
-- **발견 경로**: review-code (Day 2 round 2·6)
-- **발견 횟수**: **2회 누적** (2026-05-08)
-- **연관 P-id**: (해당 없음 — 신규 패턴, 2회 누적이라 P-id 부여 검토)
-- **패턴**: `orchestrator.run_turn`의 `try/except` 튜플이 좁아 새 예외 유형 누수 — main 스택 전파 + `kind=error` 미기록.
+- **발견 경로**: review-code (Day 2 round 2·6, plan 014 round 3)
+- **발견 횟수**: **3회 누적** (2026-05-08 R1·R2 / 2026-05-09 R3 plan 014 Phase B spec read)
+- **연관 P-id**: R-NNN 승격 검토 진입 (3회 누적 임계 도달)
+- **패턴**: file I/O / subprocess / decode 진입점의 `try/except` 튜플이 좁아 새 예외 유형 누수 — main 스택 전파 + `kind=error` 미기록 (또는 친절 SystemExit 누락).
   1. **R1 사례 (round 2)**: `(subprocess.TimeoutExpired, json.JSONDecodeError, AgentAuthError)`만 → `FileNotFoundError` (CLI 미설치) 누수
   2. **R2 사례 (round 6)**: 위 + `FileNotFoundError`만 → `OSError`(PermissionError), `UnicodeDecodeError`(role.md decode), generic `ValueError`(json.loads non-JSONDecodeError) 누수
-- **fix 패턴 (누적)**: catch 튜플을 `(TimeoutExpired, JSONDecodeError, AgentAuthError, FileNotFoundError, OSError, UnicodeDecodeError, ValueError)`로 광역화. 향후 신규 예외 유형 발견 시 추가.
-- **승격 판정**: 3번째 누락 예외 발견 시 → R-NNN + `code-conventions.md` 또는 신규 패턴 정책. catch-all `except Exception`은 너무 넓어 부적절 — 명시적 enum 유지.
+  3. **R3 사례 (plan 014 review-code)**: `run_session:786-801` implement 분기 spec read에서 `UnicodeDecodeError`만 catch → `OSError`(PermissionError, IsADirectoryError 외 race) 누수. fix 적용 — `except OSError as e: raise SystemExit("spec 읽기 실패: ...")` 추가
+- **fix 패턴 (누적)**: file I/O 진입점은 `(UnicodeDecodeError, OSError)` 최소 튜플 + 도메인별 추가(`TimeoutExpired`/`JSONDecodeError`/`AgentAuthError`/`FileNotFoundError`/`ValueError`).
+- **승격 판정**: 3회 누적 도달 — R-NNN 환원 + `code-conventions.md` "file I/O 진입점은 OSError 광역 catch + 친절 SystemExit/error 메시지" 규칙으로 승격 후보. 다음 작업 진입 시 결정. catch-all `except Exception`은 너무 넓어 부적절 — 명시적 enum 유지.
 
 ### C-015: TriggerListener __exit__ 후 prompt readline byte 절도 race (P-RAW)
 
 - **계층**: Knowledge / Validation (P-RAW 하위)
 - **도메인**: 안전성 — listener thread + main readline race
 - **발견 경로**: plan 011 e2e 시연 (사용자 보고 "Ctrl+F → prompt 'y'/한글 입력 → 빈 줄로 처리, 거부 메시지 → INVALID_RETRY_LIMIT 도달 → fallback")
-- **발견 횟수**: **3회 누적** (사용자 환경 WSL2 PTY)
+- **발견 횟수**: **4회 누적** (사용자 환경 WSL2 PTY — plan 011 3차 hot fix 후 plan 015에서 5·6·7·8차 시도 race 잔존 추가 발견)
 - **연관 P-id**: P-RAW (raw mode + thread + stdin 절도 race)
 - **패턴**: `TriggerListener.__exit__` 후 `prompt_end_or_iterate`에서 사용자 입력 byte가 누락. 가능한 원인 다중:
   1. termios attrs 복원 race (`TCSADRAIN` drain 대기 중에 readline 호출)
   2. GNU readline lib 내부 buffer 잔재 (input() 호출 시)
   3. Python sys.stdin TextIOWrapper buffer 비동기
   4. listener thread join timeout으로 백그라운드 stdin byte 절도
-- **시도된 fix (3차 누적, 일부 환경에서 race 잔존)**:
+- **시도된 fix (8차 누적, 사용자 환경 race 잔존)**:
   1. `tcsetattr` `TCSADRAIN` → `TCSAFLUSH` (즉시 적용 + queue flush)
   2. `input()` → `sys.stdin.readline()` (GNU readline lib 우회)
   3. `sys.stdin.readline()` → `os.read(fd, 4096)` byte 직접 누적 (TextIOWrapper buffer 우회) + `_read_line_for_prompt` helper 신규
   4. listener `__exit__` join 1차 timeout 시 추가 wake + 추가 join + is_alive 시 stderr "[!]" 경고
-- **잔존 결함**: 사용자 환경 (WSL2 PTY)에서 위 fix 적용 후에도 race 재현 보고. 본 문서 등록 후 별도 plan으로 정공법 fix 예정 — listener thread 폐기 + main thread polling 또는 signal-based trigger 메커니즘 검토
-- **승격 판정**: 정공법 fix 별도 plan 진입 시 R-NNN으로 환원. catch-all 임시 fix는 race 완전 제거 X
+  5. **(plan 015)** listener thread 유지 + thread-safe `queue.Queue(maxsize=1024)` + `__exit__` finally queue drain loop. 효과: tools/repro_listener.py(에이전트 호출 0)에서 race 0/4 검증, 그러나 실 dialectic CLI(codex/claude subprocess 30초+ 대기 후 prompt) 시연 시 race 재현
+  6. **(plan 015)** `_read_line_for_prompt` `flush_stdin(grace_period_s=0.05)` 호출 제거 — prompt 직후 50ms 사용자 byte drain race source 차단. **부분 효과**, 사용자 환경 race 일부 잔존
+  7. **(plan 015)** `__exit__` 시점 fd NONBLOCK 강제 (in-progress `os.read` 탈출 시도) — Linux fcntl semantics상 in-progress blocking read 안 깨움 → race 차단 X + Ctrl+F 인식 약화 부작용 → revert
+  8. **(plan 015)** `__exit__` 시점 `dup2(/dev/null, fd)` (listener `os.read`에 EOF 강제) → 사용자 시연 race 잔존 → revert
+- **잔존 결함 (사용자 환경 한계)**: 5·6차 적용 후에도 실 dialectic CLI에서 race 재현. 패턴: prompt 표시 직후 사용자 첫 입력(`'c'`/`'y'`/한글) 빈 줄 처리 → INVALID_RETRY → 두 번째 입력은 정상 도달. listener thread `os.read` blocking에 갇힌 상태에서 `_stop`/wake/fcntl/dup2 어떤 메커니즘으로도 in-progress read 깨움 X (Linux POSIX threads 한계). 환경: WSL2 PTY + Windows Terminal/VSCode integrated.
+- **승격 판정**: §2 R-NNN 환원 보류 — 정공법 후보 ① queue + flush_stdin 제거(5·6차 fix)는 광역 패턴 부분 완화에 그침. **본격 R-NNN 환원에는 architecture 재설계 필요**: (a) listener thread 폐기 + main thread `select` polling 직접 (subprocess 호출 사이 cycle), (b) signal-based trigger (POSIX SIGUSR1) — 사용자 키 매핑 어려움, (c) 사용자 워크어라운드 narrative 공식화 (prompt 첫 Enter는 무시, 둘째부터 입력). 별도 plan에서 결정.
+- **사용자 워크어라운드** (잠정): prompt 표시 후 첫 Enter는 빈 줄 처리될 수 있음 — INVALID_RETRY 메시지 보면 그 다음 입력부터 정상 도달.
 
 ---
 
@@ -364,6 +371,9 @@
 
 **P-RAW 환원 사례 누적** (plan 009-user-synthesis-wiring):
 - `src/ui.py:TriggerListener` — Ctrl+F 비동기 트리거 listener. `tty.setcbreak(fd)` raw mode + `select.select(timeout=0.1)` non-blocking + `sys.stdin.read(1)` byte capture. **결함 통로 1 (R3 안전망)**: `__enter__` 진입 전 `termios.tcgetattr(fd)` 보존 + `__exit__` try/finally `tcsetattr(fd, TCSADRAIN, old_attrs)` 복원 — abort/예외 시 raw mode 누수 차단. **결함 통로 2 (R5 가동 시점 분리)**: 기존 자산 `stdin_canonical_off`(메뉴+spinner)와 동일 fd(stdin) 점유. cleanup-restart 패턴 — turn loop 내에서 매 턴 `with TriggerListener()` 진입/종료(thread join + tcsetattr 복원). 메뉴 진입 단계는 wrap 외부, turn loop 진입 후만 listener 활성. 가동 시점 분리로 동시 active 0 보장. **결함 통로 3 (Windows fallback, R4)**: `try: import termios except ImportError: termios=None` 가드 → `self._enabled=False` no-op. **결함 통로 4 (SIGINT 핸들러 hand-off, R3 보강)**: `_setup_sigint_handler(listener)` 신설 — listener `__enter__` 직후 등록 (이전 핸들러 반환), `__exit__` 시 `signal.signal(SIGINT, prev_handler)` 복원. abort 시도 raw mode 복원 + sys.exit(130). 향후 raw mode listener 추가 시 R3·R4·R5 통로 재검사.
+
+**P-RAW 환원 사례 누적** (plan 015-trigger-race-fix, **부분 완화 — race 잔존**):
+- `src/ui.py:TriggerListener` queue 메커니즘 — plan 011 commit `2c2bc2a` 4차 hot fix(TCSAFLUSH + _read_line_for_prompt + listener join 강화) 누적에도 사용자 환경(WSL2 PTY) race 잔존. plan 015 Phase C ① 부분 fix: main thread polling + thread-safe `queue.Queue(maxsize=1024)` + `_read_line_for_prompt` `flush_stdin` 제거. listener thread는 byte를 절도 후 queue에 보존 (실시간 trigger Event set + stderr 피드백 유지) → `__exit__` finally에서 thread join 후 queue drain loop로 잔존 byte 폐기 → tcsetattr TCSAFLUSH + tcflush TCIFLUSH (kernel queue 동시 비움). queue forward 금지 (사용자 'y' 입력에 trigger byte(0x06) prefix 누수 차단). **결함 통로 5 (queue drain 폐기 정책, plan 015 부분 fix)**: cleanup 시 queue 잔존 byte는 discard. forward 시 listener가 잠시 가져갔던 사용자 byte가 readline prefix로 흘러 fallback 결함. 검증 비대칭: `tools/repro_listener.py` 수동 시연(에이전트 호출 0) race 0/4 (한글·제어키·단일키), 실 dialectic CLI(codex/claude subprocess 30초+ 후 prompt) 시연 race 잔존 — 광역 패턴 부분 완화 (사용자 환경 race 잔존, R-NNN 환원 보류). 자동 PTY harness(`tests/test_listener_race_pty.py`)는 신뢰성 미확보(`test_no_race_no_trigger` 회귀 안전망조차 PTY 동기화 fail) → module-level skip 동결, `tools/repro_listener.py` 수동 standalone에 의존.
 
 **P-SHIM_PORT 환원 사례** (plan 008-ui-polish hot-fix round, review-code 1차 발견):
 - `dialectic`, `dialectic-skill` repo-root bash shim — `readlink -f "${BASH_SOURCE[0]}"`로 symlink target 해소. GNU coreutils `-f` 옵션 의존이라 BSD/macOS 호환 결함 (silently 빈 출력 가능). fix: `python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}"` POSIX-portable 대안. 본 도구가 이미 python3 의존이라 신규 의존 0. 두 shim 동시 발견 → 향후 entrypoint shim 추가 시 동일 패턴 강제 — `Documentation-Checklist.md §1.1`의 `dialectic`/`dialectic-skill` 행이 매핑 보증.
