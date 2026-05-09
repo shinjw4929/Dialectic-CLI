@@ -90,7 +90,7 @@ def test_run_turn_wraps_driver_call_with_spinner(monkeypatch: pytest.MonkeyPatch
         f"driver Spinner stderr 출력 부재: err={captured.err!r}"
     )
     # reviewer 라벨도 단언 (with Spinner 2건 검증)
-    assert "기획 검토자" in captured.err or "Claude Code" in captured.err, (
+    assert "코드 검토자" in captured.err or "Claude Code" in captured.err, (
         f"reviewer Spinner stderr 출력 부재: err={captured.err!r}"
     )
 
@@ -123,7 +123,7 @@ def test_run_turn_spinner_isatty_false_no_op(monkeypatch: pytest.MonkeyPatch, ca
     # spinner frame 문자(SPINNER_FRAMES)도, 라벨 substring도 stderr 미등장
     assert "구현자" not in captured.err
     assert "Codex CLI" not in captured.err
-    assert "기획 검토자" not in captured.err
+    assert "코드 검토자" not in captured.err
     assert "Claude Code" not in captured.err
 
     # 그러나 bus.append는 정상 — proposal + critique 두 개

@@ -81,7 +81,44 @@ def main() -> int:
              "critical=Ctrl+F 비동기 트리거 + 수렴 시 잠재 prompt. "
              "full=매 턴 6지선다 prompt (end/iterate/skip/abort/replace/etc).",
     )
+    p_run.add_argument(
+        "--spec", type=str, default=None,
+        help="implement 모드 입력 — `<workdir>/specs/<slug>.md` 또는 임의 spec.md 경로. "
+             "mode==implement 시 required (run_session 진입 시 검증). 다른 모드에선 무시.",
+    )
     p_run.set_defaults(func=lambda args: orchestrator.run_session(args))
+
+    # implement (alias subparser — set_defaults(mode="implement", task="") 자동 적용)
+    p_implement = subs.add_parser(
+        "implement",
+        help="dialectic implement 모드 — spec.md 본문을 task 자리에 주입 + "
+             "driver(implementer) ↔ reviewer(spec-reviewer)",
+    )
+    p_implement.add_argument(
+        "--spec", required=True, type=str,
+        help="implement 모드 spec.md 경로 (필수)",
+    )
+    p_implement.add_argument("--driver", choices=["codex", "claude"], default="codex")
+    p_implement.add_argument("--reviewer", choices=["codex", "claude"], default="claude")
+    p_implement.add_argument("--max-turns", type=_positive_int, default=1)
+    p_implement.add_argument(
+        "--workdir", default=None,
+        help="작업 디렉토리. 미지정 시 ~/.local/share/dialectic/runs/<timestamp-id>/ 자동 생성.",
+    )
+    p_implement.add_argument(
+        "--convergence-streak", type=_positive_int, default=2,
+        help="reviewer [CONVERGED] 마커 누적 K턴 도달 시 auto_end_converged.",
+    )
+    p_implement.add_argument(
+        "--interactive", choices=["end-only", "critical", "full"], default="end-only",
+        help="사용자 개입 강도 dial (outline §3.1).",
+    )
+    # alias 진입은 mode=implement 자동, task는 빈 문자열 (run_session에서 spec body로 substitution).
+    p_implement.set_defaults(
+        func=lambda args: orchestrator.run_session(args),
+        mode="implement",
+        task="",
+    )
 
     # doctor
     p_doc = subs.add_parser("doctor", help="환경 점검 (claude/codex --version + auth status, 비용 0)")
@@ -220,8 +257,8 @@ def _input_mode() -> str:
     """단계 2 mode 선택. 4 옵션 표시 (1=run / 2=plan / 3=implement / 4=compare).
 
     - default Enter = "run" (현재 동작 보존)
-    - implement → "implement 모드는 spec.md 경로 입력 wiring이 본 plan 외 — 별도 plan에서
-      `dialectic implement` subparser 추가 예정 (outline `:50`)." 안내 + retry
+    - implement → "implement" 반환 → 단계 3에서 `_input_spec_path` 분기 (mode-aware,
+      plan 014 wiring)
     - compare → "compare 모드는 별도 subparser(`dialectic compare --configs ...`,
       outline `:53-57`)가 본 plan 외 — 별도 plan에서 wiring 예정." 안내 + retry
     - 그 외 입력 → 재입력
@@ -234,12 +271,7 @@ def _input_mode() -> str:
         if raw == "2":
             return "plan"
         if raw == "3":
-            print(
-                "implement 모드는 spec.md 경로 입력 wiring이 본 plan 외 — "
-                "별도 plan에서 `dialectic implement` subparser 추가 예정 (outline :50). "
-                "다른 모드를 선택해주세요."
-            )
-            continue
+            return "implement"
         if raw == "4":
             print(
                 "compare 모드는 별도 subparser(`dialectic compare --configs ...`, "
@@ -248,6 +280,50 @@ def _input_mode() -> str:
             )
             continue
         print(f"1/2/3/4 중 선택. 입력: {raw!r} — 다시.")
+
+
+def _input_spec_path() -> str:
+    """단계 3 implement 모드 — spec.md 경로 입력.
+
+    절대 또는 상대 경로 (Path.resolve()로 정규화 후 절대 경로 반환).
+    파일 부재·디렉토리·UTF-8 디코딩 실패 시 retry + 안내.
+    '?' 도움말 키 — post-010 default workdir narrative 포함
+    (`~/.local/share/dialectic/runs/<...>/specs/<slug>.md` 자동 탐색 가능 안내).
+    EOF/Ctrl-C → `_safe_input`이 `_MenuExit` raise (기존 `_input_task` 패턴 정합).
+
+    반환: 절대 경로 문자열 (str, Path 아님 — argparse 호환).
+    """
+    while True:
+        raw = _safe_input("> ").strip()
+        if raw == "?":
+            print(
+                "도움말: spec.md는 implement 모드 입력 — driver(implementer)가 본문을 task "
+                "자리에 받아 구현. 절대 또는 상대 경로 (해석 후 절대 정규화). "
+                "post-010 default workdir에서 plan 모드 산출이 "
+                "`~/.local/share/dialectic/runs/<ts-id>/specs/<slug>.md`로 저장 — "
+                "해당 경로 직접 입력 가능. 종료는 Ctrl-C."
+            )
+            continue
+        if not raw:
+            print("spec 경로가 비었습니다 — 다시 입력하거나 Ctrl-C로 종료.")
+            continue
+        try:
+            path = Path(raw).expanduser().resolve()
+        except OSError as exc:
+            print(f"경로 해석 실패 ({exc}) — 다시 입력하거나 Ctrl-C로 종료.")
+            continue
+        if not path.exists():
+            print(f"파일 없음: {path} — 다시 입력하거나 Ctrl-C로 종료.")
+            continue
+        if not path.is_file():
+            print(f"디렉토리는 spec.md로 사용 불가: {path} — 다시.")
+            continue
+        try:
+            path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"UTF-8 디코딩 실패 ({exc}) — 다시 입력하거나 Ctrl-C로 종료.")
+            continue
+        return str(path)
 
 
 def _input_mapping() -> tuple[str, str]:
@@ -346,22 +422,31 @@ def _input_max_turns() -> int:
 
 
 def _input_confirm(
-    *, max_turns: int, task: str, mode: str, driver: str, reviewer: str, workdir: str | None
+    *, max_turns: int, task: str, mode: str, driver: str, reviewer: str,
+    workdir: str | None,
+    spec: str | None = None,
 ) -> bool:
     """진행 확인 — 'n'/'no' 거부 시 False, 빈/y/invalid는 Y default True.
 
-    task 내용을 echo back — terminal wide-char Backspace 표시 결함이 있어도
-    실제 입력 buffer 정확성을 사용자가 시각 검증. 60 char 초과 시 truncate + ellipsis.
+    task 또는 spec 경로를 mode-aware로 echo back — terminal wide-char Backspace 표시
+    결함이 있어도 실제 입력 buffer 정확성을 사용자가 시각 검증. task는 60 char 초과
+    시 truncate + ellipsis.
+
+    mode==implement & spec is not None → "spec: '<path>'" echo
+    그 외 → "task: '<preview>'" echo (기존 동작)
 
     workdir is None → "workdir=auto" (orchestrator default 위임)
     workdir is str  → f"workdir={workdir}"
     """
-    preview = task if len(task) <= 60 else task[:60] + "..."
+    if mode == "implement" and spec is not None:
+        print(f"spec: {spec!r}")
+    else:
+        preview = task if len(task) <= 60 else task[:60] + "..."
+        print(f"task: {preview!r}")
     workdir_label = "auto" if workdir is None else workdir
-    print(f"task: {preview!r}")
     print(
         f"mode={mode}, {driver}→{reviewer}, {max_turns}턴, workdir={workdir_label} "
-        f"— 진행 (n=task 재입력)"
+        f"— 진행 (n=재입력)"
     )
     confirm = _safe_input("[Y/n]> ").strip().lower()
     return confirm not in ("n", "no")
@@ -410,25 +495,39 @@ def _interactive_menu_body() -> int:
     # prompt는 `> ` 2 char로 최소화 — terminal wide-char(한글) Backspace 표시 결함은
     # IUTF8 + 짧은 prompt + 진행 확인 단계의 task echo back으로 cover (입력 buffer는
     # line discipline이 정확히 누적). 안내·example은 별도 print 라인.
-    print(
-        "task: 한 줄로 작업 의도. "
-        "예: '다익스트라 최단거리 알고리즘 Python 예제를 작성해줘. "
-        "이때 아스키 아트로 매 턴 시각적 검증이 될 수 있도록 해줘'"
-    )
-    print("'?'=도움말, Ctrl-C=종료. 한글 입력 시 IME 조립 결함으로 일부 char가 buffer에 누락될 수 있음 — 진행 확인 단계의 task echo back 시각 검증 권장.")
+    if mode == "implement":
+        print(
+            "spec: implement 모드 입력 — spec.md 경로 (절대 또는 상대, 해석 후 절대 정규화). "
+            "예: ~/.local/share/dialectic/runs/<ts-id>/specs/<slug>.md (plan 모드 산출)."
+        )
+        print("'?'=도움말, Ctrl-C=종료.")
+    else:
+        print(
+            "task: 한 줄로 작업 의도. "
+            "예: '다익스트라 최단거리 알고리즘 Python 예제를 작성해줘. "
+            "이때 아스키 아트로 매 턴 시각적 검증이 될 수 있도록 해줘'"
+        )
+        print("'?'=도움말, Ctrl-C=종료. 한글 입력 시 IME 조립 결함으로 일부 char가 buffer에 누락될 수 있음 — 진행 확인 단계의 task echo back 시각 검증 권장.")
 
     try:
-        while True:  # outer: 진행 확인 'n' 거부 시 task 재입력
-            task = _input_task()
+        while True:  # outer: 진행 확인 'n' 거부 시 task/spec 재입력
+            # 단계 3: mode-aware — implement는 spec 경로, 그 외는 task 입력
+            if mode == "implement":
+                task = ""
+                spec = _input_spec_path()
+            else:
+                task = _input_task()
+                spec = None
             driver, reviewer = _input_mapping()
             workdir = _input_workdir()
             max_turns = _input_max_turns()
             if _input_confirm(
                 max_turns=max_turns, task=task, mode=mode,
                 driver=driver, reviewer=reviewer, workdir=workdir,
+                spec=spec,
             ):
                 break
-            print("취소 — task 재입력 (Ctrl-C로 종료).")
+            print("취소 — 재입력 (Ctrl-C로 종료).")
     except _MenuExit:
         return 0
 
@@ -436,7 +535,7 @@ def _interactive_menu_body() -> int:
     args = argparse.Namespace(
         cmd="run", task=task, workdir=workdir,
         driver=driver, reviewer=reviewer,
-        max_turns=max_turns, mode=mode,
+        max_turns=max_turns, mode=mode, spec=spec,
         convergence_streak=2, interactive="critical",
     )
     # run_session 진행 중 Ctrl-C도 _safe_input과 동일 종료 확인 패턴 (한글 cursor 결함 차단 위해

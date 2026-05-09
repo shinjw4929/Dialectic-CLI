@@ -40,13 +40,10 @@ def test_input_mode_plan(monkeypatch):
     assert cli._input_mode() == "plan"
 
 
-def test_input_mode_implement_back(monkeypatch, capsys):
-    """3 입력 → implement 안내 출력 + 재입력 (back to mode 메뉴) → 1 → 'run'."""
-    monkeypatch.setattr(cli, "_readline_input", _seq_factory(["3", "1"]))
-    assert cli._input_mode() == "run"
-    out = capsys.readouterr().out
-    assert "implement" in out
-    assert "다른 모드" in out
+def test_input_mode_implement_active(monkeypatch):
+    """3 입력 → 'implement' 반환 (plan 014 wiring active — 단계 3에서 spec 입력 분기)."""
+    monkeypatch.setattr(cli, "_readline_input", _seq_factory(["3"]))
+    assert cli._input_mode() == "implement"
 
 
 def test_input_mode_compare_back(monkeypatch, capsys):

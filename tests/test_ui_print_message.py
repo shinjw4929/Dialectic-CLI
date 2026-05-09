@@ -52,7 +52,7 @@ def test_print_message_critique_yellow(monkeypatch, capsys):
     """kind=critique → ANSI_YELLOW substring."""
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     print_message(
-        role_label="기획 검토자",
+        role_label="코드 검토자",
         vendor_label="Codex CLI",
         kind="critique",
         text="critique body",
@@ -60,7 +60,7 @@ def test_print_message_critique_yellow(monkeypatch, capsys):
     )
     out = capsys.readouterr().out
     assert ANSI_YELLOW in out
-    assert "기획 검토자" in out
+    assert "코드 검토자" in out
     assert "Codex CLI" in out
     assert "critique body" in out
 

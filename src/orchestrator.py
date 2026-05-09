@@ -710,6 +710,8 @@ def _resolve_workdir(args: argparse.Namespace) -> Path:
 
 
 def run_session(args: argparse.Namespace) -> int:
+    # plan 014 Phase B — args.spec: implement 모드 입력 (필수). 다른 mode에선 argparse가
+    # 받아도 무시 (mode==implement 분기에서만 검증·substitution).
     # workdir 해소 — 우선순위 표 SSOT는 _resolve_workdir docstring + cwd-isolation.md.
     workdir = _resolve_workdir(args)
     # cleanup 정책: --workdir 미지정 시에도 결과 보존 (사용자가 messages.jsonl 확인 가능).
@@ -777,6 +779,29 @@ def run_session(args: argparse.Namespace) -> int:
         sessions_dir = session_dir / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
         bus = Bus(session_dir / "messages.jsonl")
+
+        # plan 014 Phase B — implement 모드는 --spec 필수. spec body를 args.task에 substitute하여
+        # _task_msg → JSONL turn_id=0 + build_prompt §2 TASK 자리에 일관 주입 (별도 build_prompt 분기 X).
+        # 위치: _task_msg 호출 직전 — 검증 실패 시 JSONL 빈 상태로 SystemExit (clean).
+        if args.mode == "implement":
+            spec_arg = getattr(args, "spec", None)
+            if not spec_arg:
+                raise SystemExit(
+                    "implement 모드는 --spec <path> 필수 — outline/04 dialectic implement narrative."
+                )
+            spec_path_in = Path(spec_arg).resolve()
+            if not spec_path_in.is_file():
+                raise SystemExit(f"spec 파일 없음 또는 디렉토리: {spec_path_in}")
+            try:
+                spec_body = spec_path_in.read_text(encoding="utf-8")
+            except UnicodeDecodeError as e:
+                raise SystemExit(f"spec UTF-8 디코딩 실패: {spec_path_in} ({e})") from e
+            except OSError as e:
+                raise SystemExit(f"spec 읽기 실패: {spec_path_in} ({e})") from e
+            if not spec_body.strip():
+                raise SystemExit(f"spec 파일 비어있음: {spec_path_in}")
+            args.task = spec_body
+
         bus.append(_task_msg(args.task, args.mode, workdir))
 
         # plan 013 — mode==plan일 때 spec_path 1회 계산 (task 불변, slug 캐시).

@@ -196,7 +196,8 @@ def test_interactive_menu_confirm_n_retries_task_input(monkeypatch, capsys, stub
     assert called["hit"] is False
     out = capsys.readouterr().out
     assert "취소" in out
-    assert "task 재입력" in out
+    # plan 014: 메뉴 narrative가 mode-aware "재입력"으로 일반화 (task/spec 공통)
+    assert "재입력" in out
     # 빈 task 재요청 안내 (confirm n → outer continue → 빈 task → 재요청)
     assert "다시 입력하거나" in out
 
