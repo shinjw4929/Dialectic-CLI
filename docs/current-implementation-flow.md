@@ -11,8 +11,9 @@
 | CLI 진입점 | `dialectic` (default 메뉴 진입), `dialectic run`, `dialectic doctor` | [orchestrator + cli](dev-docs/systems/orchestrator.md#cli) |
 | 실행 모드 | `run`만 CLI에 노출 | [run mode](runtime-docs/systems/run-mode.md) |
 | 포지션 | `driver` → `reviewer` | [protocol](runtime-docs/protocol.md#10-포지션-vs-역할-vs-벤더-3축-분리) |
+| `--interactive` 모드 | `end-only` (CLI default) / `critical` (메뉴 default, Ctrl+F 트리거 + 종료 직전 prompt) / `full` (매 턴 6지선다) | [run mode §1](runtime-docs/systems/run-mode.md#1-명령-표면) |
 | 로그 | `logs/messages.jsonl` + `logs/sessions/*.jsonl` | [jsonl-bus](dev-docs/systems/jsonl-bus.md) |
-| 종료 | fatal error / `[CONVERGED]` streak / `max-turns` | [run mode 종료 조건](runtime-docs/systems/run-mode.md#4-종료-조건-dod-01-plan-6--outline04-451) |
+| 종료 | fatal error / `[CONVERGED]` streak / `max-turns` / `auto_end_user` (critical/full e) / `auto_end_hard_cap` (i 누적 > 20) | [run mode 종료 조건](runtime-docs/systems/run-mode.md#4-종료-조건-dod-01-plan-6--outline04-451) |
 
 ## 한눈 흐름
 
@@ -42,10 +43,21 @@ flowchart TD
     Turn --> DriverPrompt --> Driver --> Proposal
     Proposal --> PatchApply --> ReviewerPrompt --> Reviewer --> Critique --> EndCheck
     EndCheck -- "fatal error" --> Error
-    EndCheck -- "[CONVERGED] streak >= K" --> Converged
-    EndCheck -- "turn == max_turns" --> MaxTurns
-    EndCheck -- "continue" --> Next --> Loop
+    EndCheck -- "[CONVERGED] streak >= K (end-only)" --> Converged
+    EndCheck -- "turn == max_turns (end-only)" --> MaxTurns
+    EndCheck -- "critical/full mode" --> Decision["prompt_end_or_iterate / prompt_decision<br/>append decision (kind=decision, seq=97)"]
+    Decision -- "e" --> AutoEndUser["append meta<br/>auto_end_user"]
+    Decision -- "i (max_turns_runtime+=1, streak=0, hard_cap>20 차단)" --> Next
+    Decision -- "a/r/m/s (full)" --> Next
+    EndCheck -- "continue (end-only, mid-turn)" --> Next --> Loop
 ```
+
+`--interactive` 모드 분기 (plan 009-user-synthesis-wiring):
+- **end-only**: fatal/CONVERGED/max-turns 3 분기 그대로 자동 종료 (사용자 prompt 0)
+- **critical**: turn loop 내 `with TriggerListener()` cleanup-restart. 매 턴 끝 `trigger.is_set OR converged OR last_turn` 시 `prompt_end_or_iterate(turn_id, reason)` Y/n/text 분기
+- **full**: 매 턴 끝 `prompt_decision` 6지선다 (a/r/m/i/e/s, outline §3.3). a → 다음 턴 driver prompt에서 reviewer critique 제외 (`build_prompt(*, exclude_reviewer=True)`) / s → 다음 턴 reviewer 호출 skip (`run_turn(*, skip_reviewer=True)`) / r → directive 자동 주입 (사용자 입력 없으면 `last_critique.content[:200]`)
+- **MAX_TURNS_HARD_CAP=20** (i 분기 무한 누적 방지) + 초기 args 가드 (`min(args.max_turns, HARD_CAP)` clamp + stderr)
+- **i 정책 α**: trigger/converged/last_turn 모든 i = `max_turns_runtime += 1` 단순 누적
 
 ## 메시지 순서
 
@@ -65,7 +77,8 @@ task
 | 2 | `proposal` | `implementer` | `driver` | 1 | driver 제안 + meta.patches |
 | 2.5 | `patch_applied` | `system` | null | 98 | (있을 때만) ADR-10 R2.7 search-replace 적용 결과 |
 | 3 | `critique` | `spec-reviewer` | `reviewer` | 2 | reviewer 검토 |
-| 4 | `meta` | `system` | null | 99 | 자동 종료 사유 |
+| 3.5 | `decision` | `user` | null | 97 | (critical/full 모드만) 사용자 개입 — content=key (a/r/m/i/e/s), directive=text or null. meta.vendor="user", is_mock=false |
+| 4 | `meta` | `system` | null | 99 | 자동 종료 사유 (`auto_end_user`/`auto_end_converged`/`auto_end_hard_cap`/`auto-end (max-turns reached)`/`auto-end (error: ...)`) |
 
 `(turn_id, seq_in_turn)` 정렬 직렬화 순서는 `proposal(1) → critique(2) → patch_applied(98) → meta(99)`. patch_applied는 시간 순(turn 내 발생)으로는 critique 앞이지만 직렬화 순으로는 critique 뒤 (ADR-10 의도된 비대칭, driver 다음 턴 prompt 강조 효과).
 

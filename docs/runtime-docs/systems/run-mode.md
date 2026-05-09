@@ -6,14 +6,14 @@
 
 진입로는 두 가지:
 
-1. **default 메뉴 진입** — `dialectic` 단독 실행 → `_interactive_menu` 호출 → 헤더 1줄 + `Spinner("환경 점검 중...")` wrap한 `check_env()` (수십 초 외부 호출 가능, isatty=False 시 no-op) + 환경 점검 결과(활성 부족 시만 출력) + task 한 줄 입력(example 표시 + `?` 도움말 키) + max-turns 입력(default 1, 빈/비정수/음수 처리) + 진행 확인 단계(`진행? [Y/n] (n=task 재입력):`, `n` 거부 시 task 재입력 루프) → run 분기 (default 매핑: driver=codex, reviewer=claude, interactive=end-only, max-turns은 사용자 입력값). 호출 동안 stderr에 spinner(`[{role}: {vendor}] running... ⠋`, outline §3.2:190 SSOT) + 정상 응답 시 stdout에 구분선·헤더(`✓ latency · tokens`)·본문 출력(outline §3.2:193-225 SSOT, ANSI proposal=cyan/critique=yellow). 기획자 페르소나(outline/03-ux §3.1)의 default 진입로. EOFError/KeyboardInterrupt 안전 종료(exit 0). Day 2 minimum cut — 모드/매핑 선택·`dialectic logs` 서브커맨드는 후속 plan.
+1. **default 메뉴 진입** — `dialectic` 단독 실행 → `_interactive_menu` 호출 → 헤더 1줄 + `Spinner("환경 점검 중...")` wrap한 `check_env()` (수십 초 외부 호출 가능, isatty=False 시 no-op) + 환경 점검 결과(활성 부족 시만 출력) + task 한 줄 입력(example 표시 + `?` 도움말 키) + max-turns 입력(default 1, 빈/비정수/음수 처리) + 진행 확인 단계(`진행? [Y/n] (n=task 재입력):`, `n` 거부 시 task 재입력 루프) → run 분기 (default 매핑: driver=codex, reviewer=claude, **interactive=critical** — 메뉴 진입 default, plan 009-user-synthesis-wiring; max-turns은 사용자 입력값). 호출 동안 stderr에 spinner(`[{role}: {vendor}] running... ⠋`, outline §3.2:190 SSOT) + 정상 응답 시 stdout에 구분선·헤더(`✓ latency · tokens`)·본문 출력(outline §3.2:193-225 SSOT, ANSI proposal=cyan/critique=yellow). 기획자 페르소나(outline/03-ux §3.1)의 default 진입로. EOFError/KeyboardInterrupt 안전 종료(exit 0).
 2. **CLI 인자 명시** — 자동화/CI용. 하기 인자 표 그대로:
 
 ```bash
 dialectic run --task <text> [--workdir <path>] [--driver {codex,claude}]
                             [--reviewer {codex,claude}] [--max-turns <int>]
                             [--mode {run}] [--convergence-streak <int>]
-                            [--interactive {end-only}]
+                            [--interactive {end-only,critical,full}]
 ```
 
 | 인자 | default | 설명 |
@@ -25,7 +25,7 @@ dialectic run --task <text> [--workdir <path>] [--driver {codex,claude}]
 | `--max-turns` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)` |
 | `--mode` | `run` | Day 2는 `run`만. plan/implement/compare는 Day 3+ |
 | `--convergence-streak` | `2` | reviewer `[CONVERGED]` 마커 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9 fallback: `--max-turns < K+1` 시 K=1 + stderr 경고 |
-| `--interactive` | `end-only` | Day 2는 `end-only` 단일. Day 3+에서 full/critical 추가 + 6지선다 |
+| `--interactive` | `end-only` (CLI 직접 호출), `critical` (메뉴 진입 default) | 3 모드 — `end-only` (자동 dialectic, prompt 0) / `critical` (Ctrl+F 비동기 트리거 + CONVERGED·max-turns 도달 시 `prompt_end_or_iterate` Y/n/text) / `full` (매 턴 끝 6지선다 a/r/m/i/e/s). plan 009-user-synthesis-wiring 산출. ADR-9 정책 — critical/full에서 `[CONVERGED]` streak ≥ K 도달 시 강제 종료 차단, 사용자 prompt. `MAX_TURNS_HARD_CAP=20` 절대 상한 (i 분기 무한 누적 방지). i 분기 정책 α — trigger/converged/last_turn 모든 i = `max_turns_runtime += 1` 단순 누적 (사용자 결정). full s/a 분기는 `run_turn(*, skip_reviewer=)` / `build_prompt(*, exclude_reviewer=)` keyword 인자로 wiring (default False 회귀 0) |
 
 ## 2. 한 턴 라이프사이클
 
@@ -108,10 +108,11 @@ ADR-9 fallback: `--max-turns < --convergence-streak + 1` + `K > 1` 가드 시 K=
 | 코드 변경 | run-mode.md 영향 |
 |---|---|
 | `run_session` 종료 분기 추가 | §4 종료 조건 매트릭스 갱신 |
-| `--mode` choices 확장 (Day 3+ plan/implement) | INDEX.md + 본 파일은 unaffected (run 한정) |
+| `--mode` choices 확장 (plan/implement/compare 추가 시) | INDEX.md + 본 파일은 unaffected (run 한정) |
 | `[CONVERGED]` 알고리즘 변경 (outline/02 §2.9) | §2 라이프사이클 R4·R5 + §4 종료 조건 갱신 |
-| 어댑터 추가 (mock 등 Day 3+) | §1 `--driver`/`--reviewer` choices 갱신 + §3 메시지 흐름 예시 갱신 |
+| 어댑터 추가 (mock 등) | §1 `--driver`/`--reviewer` choices 갱신 + §3 메시지 흐름 예시 갱신 |
 | `MODE_ROLES["run"]` 매핑 변경 | §2 R0 노드 갱신 |
+| `--interactive` 분기 변경 (critical/full prompt 시점·정책) | §1 `--interactive` 인자 표 + §4 종료 조건 (`auto_end_user`/`auto_end_hard_cap` 추가) |
 
 ## 7. 검증 명령
 

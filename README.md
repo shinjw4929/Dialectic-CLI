@@ -108,7 +108,7 @@ cat /tmp/dialectic-demo/logs/messages.jsonl                # 4 라인+ (task + p
 | `--max-turns N` | `1` | 최대 turn 수. 도달 시 `auto-end (max-turns reached)`. 양수만 (`_positive_int` 가드) |
 | `--mode {run}` | `run` | Day 2는 `run`만. plan/implement/compare는 Day 3+ |
 | `--convergence-streak K` | `2` | reviewer `[CONVERGED]` 누적 K턴 도달 시 `auto_end_converged` (outline/02 §2.9). ADR-9: `--max-turns < K+1` 시 K=1 fallback + stderr 경고. 양수만 |
-| `--interactive {end-only}` | `end-only` | Day 2는 `end-only`만 (인터랙티브 미구현 — max-turns/streak까지 자동). Day 3+에서 full/critical 추가 |
+| `--interactive {end-only,critical,full}` | CLI 직접 호출: `end-only` / 메뉴 진입: `critical` (분기) | `end-only` = max-turns/streak까지 자동(prompt 0). `critical` = Ctrl+F 비동기 트리거 + CONVERGED/max-turns 종료 직전 prompt_end_or_iterate (Y/n/text). `full` = 매 턴 끝 6지선다(a/r/m/i/e/s) 강제. Ctrl+C는 abort (subprocess SIGINT 전파 + raw mode 복원 + exit 130) |
 
 `dialectic doctor`는 인자 없음 — claude/codex `--version` + `auth/login status` 비용 0 점검 (벤더 대칭, P-VENDOR 환원). `claude doctor`는 영구 제외 (codex 동등 명령 부재 + capture_output 호출 시 30s+ hang) — 결과 필요 시 사용자가 `claude doctor` 직접 호출.
 

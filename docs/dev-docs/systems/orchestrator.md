@@ -10,6 +10,8 @@
 | `ROLE_FILE` | `{"implementer": Path(...).parent.parent / "docs/runtime-docs/roles/implementer.md", ...}` 4 path | `build_prompt` §1 ROLE 입력 |
 | `META_SEQ_SENTINEL` | `99` | `_meta_msg`의 `seq_in_turn` (turn 내 최후 위치) |
 | `META_PATCH_APPLIED_SEQ` | `98` | `_patch_applied_msg`의 `seq_in_turn` (ADR-10 R2.7). 시간 순(turn 내 발생)은 reviewer 앞이지만 직렬화 순(`(turn_id, seq_in_turn)` 정렬)은 reviewer 뒤 — 의도된 비대칭, driver 다음 턴 prompt 강조 효과 |
+| `META_DECISION_SEQ` | `97` | `_decision_msg`의 `seq_in_turn`. 직렬화 순 proposal=1 → critique=2 → decision=97 → patch_applied=98 → meta=99. 사용자 직권 지시가 patch 내역보다 먼저 driver 다음 턴 prompt에 노출 (시간 순 ≠ 직렬화 순, ADR-10 비대칭 정합) |
+| `MAX_TURNS_HARD_CAP` | `20` | critical/full 모드 i 분기 무한 누적 절대 상한 + 초기값 가드 (`args.max_turns > 20` 시 clamp + stderr) |
 | `DEFAULT_TIMEOUT_S` | `300` | subprocess timeout (code-conventions §3 명시 필수) |
 
 ## 핵심 헬퍼
@@ -35,7 +37,7 @@ reviewer 응답 마지막 비공백 줄이 정확히 `[CONVERGED]` 단독일 때
 
 14 필드 일관 채움. `def` 정의 (PEP 8 E731 회피). 시스템 sentinel 메시지(`_task_msg`/`_meta_msg`/`_error_msg` exception fallback)에 사용.
 
-### `build_prompt(role, task, history, directive) -> str`
+### `build_prompt(role, task, history, directive, *, exclude_reviewer=False) -> str`
 
 ```
 # 1. ROLE
@@ -54,16 +56,16 @@ reviewer 응답 마지막 비공백 줄이 정확히 `[CONVERGED]` 단독일 때
 (directive: {directive or 'none'})
 ```
 
-`protocol.md §5 :233-271` 1:1.
+`protocol.md §5 :233-271` 1:1. `exclude_reviewer=True` 시 `_serialize_history`에 전달 (full a 분기 — driver 응답 채택 후 다음 턴 prompt에서 critique 제외). default `False` 회귀 0.
 
-### `_serialize_history(history) -> str` (`protocol.md §5 :246-260`)
+### `_serialize_history(history, *, exclude_reviewer=False) -> str` (`protocol.md §5 :246-260`)
 
-turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 차단). `itertools.groupby`로 turn별 묶음. 라벨:
+turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 차단). `exclude_reviewer=True` 시 `m.kind == "critique"` 메시지 제외 (full a 분기 wiring). `itertools.groupby`로 turn별 묶음. 라벨:
 - `decision` → `- USER (decision: {content}, directive: "{directive}")`
 - `from_=="system"` → `- SYSTEM ({kind}): {content}`
 - 그 외 → `- {ROLE.upper()} ({kind}): {content}`
 
-빈 body → `(이전 턴 없음)`.
+빈 body → `(이전 턴 없음)`. default `exclude_reviewer=False` 회귀 0.
 
 ## 메시지 생성 헬퍼 5종
 
@@ -74,6 +76,7 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 | `_task_msg(task, mode, workdir) -> Message` | turn_id=0 첫 메시지 | `run_session` |
 | `_meta_msg(turn_id, content, workdir, mode, *, parent_id, convergence_streak=None) -> Message` | auto_end_converged·auto-end (max-turns reached) | `run_session` |
 | `_patch_applied_msg(turn_id, workdir, mode, content, *, parent_id, apply_status, apply_error, files_changed) -> Message` (ADR-10 R2.7) | search-replace 적용 결과 (성공/실패 모두) | `run_turn` |
+| `_decision_msg(turn_id, key, directive, workdir, mode, *, parent_id) -> Message` (Phase D wiring) | critical/full 모드 사용자 결정 — `kind="decision"`, `seq_in_turn=97`, `vendor="user"`, `agent_cli="user"`, 토큰 4종 0, `cost_usd=None`, `is_mock=False` | `run_session` critical/full 분기 |
 
 `_patch_applied_msg`: `from_="system"`, `slot=None`, `kind="patch_applied"`, `seq_in_turn=META_PATCH_APPLIED_SEQ`. `meta`는 `dataclasses.replace(SENTINEL_META(workdir), apply_status=..., apply_error=..., files_changed=...)`로 ADR-10 3 필드 채움 (`patches`는 None — proposal 측 책임). `content`는 호출자(`run_turn`)가 만든 prefix `apply_status=...` 명시 요약 — driver의 reviewer critique 오인 차단 mitigation.
 
@@ -81,9 +84,9 @@ turn_id ≥ 1만 포함 (turn_id=0 task는 §2 TASK에 별도 주입 — 중복 
 
 ## 턴 라이프사이클
 
-### `run_turn(turn_id, mode, *, driver_runner, reviewer_runner, bus, task, workdir, sessions_dir) -> None`
+### `run_turn(turn_id, mode, *, driver_runner, reviewer_runner, bus, task, workdir, sessions_dir, skip_reviewer=False, exclude_reviewer_history=False) -> None`
 
-keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사이클 R0~R4 구현.
+keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사이클 R0~R4 구현. `skip_reviewer=True` (full s 분기) 시 reviewer 호출 skip + critique 미생성 (다음 턴 parent_id는 `_last_proposal_msg_id` fallback). `exclude_reviewer_history=True` (full a 분기) 시 driver `build_prompt`에 `exclude_reviewer=True` 전달 (이전 턴 critique 제외). 둘 다 default `False` 회귀 0.
 
 ```
 1. history = bus.read_all()                     # turn_id < N snapshot
@@ -121,24 +124,55 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
    - if max_turns < K + 1 and K > 1:
        sys.stderr.write("K reduced to 1 (ADR-9, outline/02 §2.9)")
        K = 1
-4. sessions_dir 생성 + bus = Bus(logs/messages.jsonl)
-5. bus.append(_task_msg(args.task, args.mode, workdir))    # turn_id=0
-6. for turn in range(1, args.max_turns + 1):
-   - run_turn(...)
-   - last_msg = bus.read_all()[-1]
-   - if last_msg.kind == "error" and last_msg.turn_id == turn:
-       # protocol.md §9 정합 — fatal error (auth/CLI 미설치/timeout/parse fail) 즉시 break.
-       # retry 1회는 Day 3+ deferred (C-009).
-       bus.append(_meta_msg("auto-end (error: ...)", parent_id=last_msg.msg_id)) + return 0
-   - last_critique = next(reverse iter, kind=="critique" + turn_id==turn)
-   - if convergence_streak == 1: streak += 1
-       if streak >= K: bus.append(_meta_msg("auto_end_converged", convergence_streak=K)) + return 0
-     else: streak = 0
-7. fallthrough: bus.append(_meta_msg("auto-end (max-turns reached)"))
-8. finally:
+4. 초기값 가드 (P1-ε):
+   - max_turns_runtime = min(args.max_turns, MAX_TURNS_HARD_CAP)
+   - if args.max_turns > MAX_TURNS_HARD_CAP: stderr 경고 (clamp 사실 보고)
+5. mock fallback (P-MOCK, plan 007 deferred 후 활성):
+   - if (args.driver=="mock") or (args.reviewer=="mock") and args.interactive in ("critical","full"):
+       args.interactive = "end-only"  # 강제 (raw 키 stdin 비호환)
+6. sessions_dir 생성 + bus = Bus(logs/messages.jsonl) + bus.append(_task_msg)
+
+7. mode 분기 (3 분기):
+   (a) end-only — AS-IS for ... in range(1, max_turns_runtime+1):
+        - run_turn(...) + error 즉시 break + streak >= K 즉시 auto_end_converged
+        - listener 가동 X, 사용자 prompt 0
+   (b) critical — while turn <= max_turns_runtime:
+        - 매 턴 with TriggerListener() as trigger + _setup_sigint_handler(trigger)
+          (cleanup-restart 패턴 — 매 턴 시작 시 listener 새로 진입, finally signal 복원)
+        - run_turn(...) 호출 (driver+reviewer normal)
+        - error 즉시 auto-end
+        - converged_now = (streak >= K), triggered = trigger.is_set(), last_turn_now = (turn == max_turns_runtime)
+        - should_prompt = triggered or converged_now or last_turn_now
+        - should_prompt 시 prompt_end_or_iterate(turn_id, reason) 호출:
+            * key="e" → _meta_msg("auto_end_user") + return 0
+            * key="i" → _decision_msg + max_turns_runtime += 1 + streak = 0
+                       max_turns_runtime > MAX_TURNS_HARD_CAP 시 auto_end_hard_cap + return
+   (c) full — while turn <= max_turns_runtime:
+        - listener 가동 X (매 턴 prompt_decision 자동 호출)
+        - run_turn(..., skip_reviewer=skip_reviewer_next, exclude_reviewer_history=...)
+        - parent_id 결정 (skip_reviewer_next=True면 _last_proposal_msg_id fallback)
+        - flag reset (parent_id 결정 후 — P1-새-2 dead code fix)
+        - prompt_decision(turn_id, "full") → 6 분기 (a/r/m/i/e/s):
+            a → exclude_reviewer_history_next = True
+            r → directive 빈 입력 시 last_critique.content[:200] 자동 주입 (β inline)
+            m → pass
+            i → max_turns_runtime += 1, streak = 0, hard cap 가드
+            e → auto_end_user + return 0
+            s → skip_reviewer_next = True
+
+8. fallthrough: bus.append(_meta_msg("auto-end (max-turns reached)"))
+9. finally:
    - if cleanup: shutil.rmtree(workdir)  # Day 2 default cleanup=False — 미실행
    - else: sys.stderr.write(workdir 보존 + messages.jsonl + raw streams 경로 안내)
 ```
+
+### 새 helper (Phase D wiring)
+
+| helper | 책임 |
+|---|---|
+| `_last_critique_msg_id(history) -> str \| None` | history 역방향 탐색 — 마지막 critique kind msg_id. critical/full 모두 decision parent_id 통일 |
+| `_last_proposal_msg_id(history) -> str \| None` | full s 분기 직후 critique 부재 시 parent_id fallback |
+| `_setup_sigint_handler(listener) -> Callable\|int\|None` | SIGINT 핸들러 등록 — abort 시 listener `__exit__`로 raw mode 복원 + sys.exit(130). 반환값은 이전 핸들러 (caller가 with 종료 시 `signal.signal(SIGINT, prev)` 복원) |
 
 ### `_resolve_runner(name) -> AgentRunner`
 
@@ -156,7 +190,7 @@ keyword-only 강제. `runtime-docs/systems/run-mode.md §2` mermaid 라이프사
 
 `--mode choices=["run"]` (Day 2 한정 — Day 3+ plan/implement/compare 추가 시 choices 확장. `MODE_ROLES` dict는 이미 plan/implement 키 보존이라 한 줄 변경).
 
-`--interactive choices=["end-only"]` (Day 2 한정 — Day 3+ full/critical 추가 + 6지선다 분기 + Enter=iterate default).
+`--interactive choices=["end-only","critical","full"]` (plan 009 산출). CLI default `end-only`, 메뉴 진입 default `critical`. full 모드는 매 턴 끝 6지선다(a/r/m/i/e/s) prompt_decision 강제, critical 모드는 Ctrl+F 트리거 + CONVERGED/max-turns 종료 직전 prompt_end_or_iterate (Y/n/text), end-only 모드는 사용자 prompt 0 (자동화·CI).
 
 ### default 메뉴 진입 (`_interactive_menu`)
 

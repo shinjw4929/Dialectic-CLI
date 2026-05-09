@@ -16,7 +16,7 @@
 
 ## 2. 외부 의존성 0 원칙
 
-본 도구는 **표준 라이브러리만** 사용한다 (`subprocess`, `json`, `pathlib`, `argparse`, `dataclasses`, `typing`, `concurrent.futures`, `tempfile`, `uuid`, `datetime`).
+본 도구는 **표준 라이브러리만** 사용한다 (`subprocess`, `json`, `pathlib`, `argparse`, `dataclasses`, `typing`, `concurrent.futures`, `tempfile`, `uuid`, `datetime`, `signal`, `termios`, `tty`, `select`, `threading`).
 
 **금지**:
 - `rich` / `textual` / `click` / `pydantic` / `httpx` 등 외부 패키지
@@ -141,6 +141,14 @@ class AgentRunner(Protocol):
 - **공통 출력 함수**: `src/ui.py`의 `panel(title, body, color=None)` 등으로 일관성.
 - **mock 표시**: 어댑터 출력 헤더에 `· MOCK` 라벨 (정직성).
 - **진행 표시**: 어댑터 호출 중 spinner. `\r` + 짧은 단위로 갱신, 완료 시 줄바꿈.
+
+### TriggerListener 패턴 (`src/ui.py:TriggerListener`, plan 009 산출)
+
+- **POSIX 한정**: `termios.tcsetattr` + `tty.setcbreak` + `select.select` 사용. Windows native cmd는 `termios` import 부재 → no-op fallback (`__enter__` 즉시 return self, `is_set()` 항상 False)
+- **isatty 가드**: `sys.stdin.isatty()` False 시 raw mode 진입 skip (Spinner `:122` 동일 패턴) — pytest capture·pipe 환경 안전
+- **cleanup-restart**: 매 턴 시작 시 `with TriggerListener() as trigger`로 새로 진입, 턴 끝 `__exit__` (try/finally `tcsetattr` 복원). subprocess `claude/codex` 호출 동안 stdin 충돌 차단 — `run_turn` 내부 `stdin_canonical_off` 컨텍스트와 가동 시점 분리 (R5)
+- **threading.Event**: 리스너 thread가 Ctrl+F (chr(0x06)) 감지 시 set. `is_set()`로 main thread 비동기 polling (턴 끝)
+- **SIGINT hand-off**: `_setup_sigint_handler(listener)` 등록 — abort 시 `listener.__exit__`로 raw mode 복원 후 `sys.exit(130)` (POSIX SIGINT 표준 종료 코드, R3)
 
 ---
 

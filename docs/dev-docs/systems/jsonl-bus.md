@@ -17,7 +17,7 @@
 | `to` | `str` | "broadcast" 또는 role |
 | `slot` | `str \| None` | "driver"/"reviewer"/None (system/user) |
 | `mode` | `str` | "run"/"plan"/"implement"/"compare" |
-| `kind` | `str` | "task"/"proposal"/"critique"/"decision"/"error"/"meta"/"patch_applied" (ADR-10 R2.7) |
+| `kind` | `str` | "task"/"proposal"/"critique"/"decision"/"error"/"meta"/"patch_applied" (ADR-10 R2.7). `decision`은 `run_session` critical/full 모드 (Phase D wiring) 매 턴 끝 사용자 입력 결과 — `_decision_msg` helper 생성, seq=97, vendor="user" |
 | `content` | `str` | 본문 |
 | `directive` | `str \| None` | 사용자 directive (kind=decision일 때) |
 | `meta` | `Meta` | 18 필드 dataclass (아래) |
@@ -28,8 +28,8 @@
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `vendor` | `str` | "openai"/"anthropic"/"system"/"mock" |
-| `agent_cli` | `str` | "codex"/"claude"/"system"/"mock" |
+| `vendor` | `str` | "openai"/"anthropic"/"system"/"mock"/"user" (decision kind 메시지는 "user", system sentinel은 "system") |
+| `agent_cli` | `str` | "codex"/"claude"/"system"/"mock"/"user" |
 | `model` | `str \| None` | claude만 (`payload.get("model")`), codex 미보고 |
 | `session_id` | `str \| None` | claude OAuth session |
 | `thread_id` | `str \| None` | codex `thread.started.thread_id` |
@@ -46,6 +46,17 @@
 | `apply_status` | `str \| None = None` | kind=patch_applied일 때만 `"ok"` 또는 `"failed"` (ADR-10 R2.7) |
 | `apply_error` | `str \| None = None` | apply_status=failed 시 사유 (예: `"path outside workdir: ..."`, `"search not found in ..."`, `"ambiguous match: ..."`, `"empty SEARCH not allowed in ..."`) |
 | `files_changed` | `list[str] \| None = None` | apply_status=ok 시 변경된 파일 상대 경로 리스트, failed 시 빈 리스트 또는 None |
+
+### decision kind 메시지 meta 정직성
+
+`_decision_msg` helper 생성 메시지의 Meta는 LLM 호출 부재 정직성 표현:
+
+- `vendor="user"`, `agent_cli="user"` (system sentinel과 구분 — 사용자 능동 입력)
+- `model=None`, `session_id=None`, `thread_id=None` (LLM 미호출)
+- 토큰 4종(`input_tokens`/`output_tokens`/`cached_input_tokens`/`reasoning_output_tokens`) 모두 0
+- `cost_usd=None` (LLM 호출 0 — 측정 불가, 0과 의미 다름. 정직성)
+- `latency_ms=0` (사용자 입력은 측정 외)
+- `is_mock=False` (사용자 입력은 실 행위 — mock 재생 X)
 
 ### to_dict / from_dict
 
