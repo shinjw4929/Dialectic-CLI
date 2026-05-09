@@ -83,7 +83,7 @@ codex --version      # codex-cli x.y.z 형식 출력
 ### Step 3 — 본 도구 설치
 
 ```bash
-git clone <this-repo-url> Dialectic-CLI
+git clone https://github.com/shinjw4929/Dialectic-CLI
 cd Dialectic-CLI
 ./setup.sh
 ```
