@@ -66,27 +66,28 @@ else
   echo "  export PATH=\"\$HOME/.local/bin:\$PATH\"  또는  alias dialectic='$REPO_DIR/dialectic'"
 fi
 
-# 5. 외부 CLI 점검 (안내만, 실패해도 진행 — mock 모드로 동작 가능)
+# 5. 외부 CLI 점검 (안내만, 실패해도 진행 — 사용 시점에 인증 필요)
 echo ""
-echo "─── 외부 CLI 점검 (선택) ───"
+echo "─── 외부 CLI 점검 (필수) ───"
 if command -v codex >/dev/null 2>&1; then
   echo "codex CLI:  $(codex --version 2>&1 | head -1)"
 else
-  echo "codex CLI:  미설치 (실 호출 모드 제한, mock 모드 가능)"
+  echo "codex CLI:  미설치 — 사용 전 설치 + 인증 필요 (\`codex login\` 또는 OPENAI_API_KEY)"
 fi
 if command -v claude >/dev/null 2>&1; then
   echo "claude CLI: $(claude --version 2>&1 | head -1)"
 else
-  echo "claude CLI: 미설치 (실 호출 모드 제한, mock 모드 가능)"
+  echo "claude CLI: 미설치 — 사용 전 설치 + 인증 필요 (\`claude /login\` 또는 ANTHROPIC_API_KEY)"
 fi
 
 echo ""
 echo "✓ 설치 완료. 다음을 시도해보세요:"
 echo ""
-echo "    dialectic                                          # default 메뉴 진입 (어디서나, activate 불필요)"
-echo "    dialectic run --task @tasks/wave_difficulty/task.md --mock tasks/wave_difficulty"
+echo "    dialectic doctor                                    # claude/codex --version + auth 점검 (비용 0)"
+echo "    dialectic                                           # default 메뉴 진입 (어디서나, activate 불필요)"
+echo "    dialectic run --task \"JSON 파싱 함수 작성\" --max-turns 3"
 echo "    dialectic-skill sync-docs"
 echo ""
-echo "  (실 호출은 \`claude login\` + \`codex login\` 1회 후 --mock 생략)"
+echo "  데모 시나리오: tasks/implement-dijkstra/task.md (1차 task 본문 paste 후 critical 모드)"
 echo "  (~/.local/bin symlink 미설정 시: cd 후 \`./dialectic\` 또는 \`source .venv/bin/activate\`)"
 echo ""
